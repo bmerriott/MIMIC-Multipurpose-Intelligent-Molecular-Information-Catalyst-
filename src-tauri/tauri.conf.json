@@ -1,0 +1,50 @@
+{
+  "build": {
+    "beforeBuildCommand": "cd app && npm run build",
+    "beforeDevCommand": "cd app && npm run dev",
+    "devPath": "http://localhost:5173",
+    "distDir": "../app/dist"
+  },
+  "package": {
+    "productName": "Mimic AI",
+    "version": "1.0.0"
+  },
+  "tauri": {
+    "allowlist": {
+      "all": true
+    },
+    "bundle": {
+      "active": true,
+      "targets": ["nsis"],
+      "identifier": "com.mimicai.app",
+      "icon": [
+        "icons/icon.ico",
+        "icons/icon.svg"
+      ],
+      "resources": [
+        "resources/**/*",
+        "start-backends.ps1",
+        "start-backends.bat"
+      ]
+    },
+    "security": {
+      "csp": null
+    },
+    "updater": {
+      "active": false
+    },
+    "windows": [
+      {
+        "title": "Mimic AI",
+        "width": 1400,
+        "height": 900,
+        "center": true,
+        "visible": true,
+        "focus": true,
+        "decorations": true,
+        "transparent": false,
+        "alwaysOnTop": false
+      }
+    ]
+  }
+}

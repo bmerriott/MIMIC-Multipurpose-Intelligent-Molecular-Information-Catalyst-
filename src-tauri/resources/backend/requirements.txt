@@ -1,0 +1,55 @@
+# Mimic AI Unified TTS Backend Requirements
+# 
+# IMPORTANT - PYTHON VERSION REQUIREMENTS:
+# =========================================
+# 
+# Supported Python Versions:
+#   - Python 3.10: ✓ Fully supported
+#   - Python 3.11: ✓ Recommended (best compatibility)
+#   - Python 3.12: ✓ Fully supported
+#   - Python 3.13+: ✗ NOT SUPPORTED by PyTorch
+# 
+# If you have Python 3.13 or newer:
+#   PyTorch (required for TTS) does not yet provide wheels for Python 3.13+.
+#   You need to install Python 3.11 alongside your current version.
+# 
+#   To install Python 3.11:
+#     1. Go to https://python.org/downloads/
+#     2. Download Python 3.11.8 (or latest 3.11.x)
+#     3. Run installer and CHECK "Add Python to PATH"
+#     4. Install
+# 
+#   Multiple Python versions can coexist on the same system.
+#   Installing 3.11 will NOT remove your existing Python installation.
+
+# FastAPI and server
+fastapi>=0.104.0
+uvicorn[standard]>=0.24.0
+python-multipart>=0.0.6
+pydantic>=2.5.0
+python-dotenv>=1.0.0
+
+# Audio processing
+numpy>=1.24.0
+scipy>=1.11.0
+soundfile>=0.12.1
+librosa>=0.10.0
+
+# TTS Engines - Install based on preference
+# StyleTTS2 (lightweight, fast)
+styletts2>=0.1.0
+gruut>=2.3.0
+
+# Qwen3-TTS (higher quality, heavier)
+# Install with: pip install qwen-tts
+# Optional: Flash Attention 2 for Qwen3 (reduces VRAM usage)
+# pip install flash-attn --no-build-isolation
+
+# PyTorch - Will be installed by launcher if missing
+# For CPU (default):
+#   pip install torch torchaudio --index-url https://download.pytorch.org/whl/cpu
+# For CUDA 12.1 (GPU):
+#   pip install torch torchaudio --index-url https://download.pytorch.org/whl/cu121
+
+# Web search
+requests>=2.31.0
