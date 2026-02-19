@@ -1,0 +1,12 @@
+{
+  "name": "Mimic AI",
+  "version": "1.0.0",
+  "notes": "Initial release of Mimic AI with voice synthesis",
+  "pub_date": "2024-01-15T00:00:00Z",
+  "platforms": {
+    "windows-x86_64": {
+      "signature": "",
+      "url": "https://github.com/yourusername/mimic-ai/releases/download/v1.0.0/Mimic-AI-Setup.exe"
+    }
+  }
+}

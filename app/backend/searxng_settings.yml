@@ -1,0 +1,58 @@
+# SearXNG Settings for Mimic AI
+# Disables bot protection to allow local API access
+
+general:
+  debug: false
+  instance_name: "Mimic AI Search"
+  
+search:
+  safe_search: 0
+  autocomplete: 'duckduckgo'
+  
+server:
+  # Bind to all interfaces
+  bind_address: "0.0.0.0"
+  port: 8080
+  secret_key: "mimic_ai_search_key_change_in_production"
+  
+# Disable limiter (bot protection)
+limiter:
+  enabled: false
+
+# Disable CAPTCHA
+ui:
+  static_path: ""
+  templates_path: ""
+  
+# Engine settings
+engines:
+  - name: duckduckgo
+    engine: duckduckgo
+    shortcut: ddg
+    disabled: false
+    
+  - name: google
+    engine: google
+    shortcut: go
+    disabled: false
+    
+  - name: bing
+    engine: bing
+    shortcut: bi
+    disabled: false
+    
+  - name: wikipedia
+    engine: wikipedia
+    shortcut: wp
+    disabled: false
+    
+  - name: wolframalpha
+    engine: wolframalpha
+    shortcut: wa
+    disabled: false
+
+# Preferences
+preferences:
+  lock:
+    - autocomplete
+    - method

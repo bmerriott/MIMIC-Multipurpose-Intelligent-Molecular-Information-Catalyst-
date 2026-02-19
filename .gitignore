@@ -1,0 +1,151 @@
+# ============================================
+# Mimic AI Desktop - Git Ignore
+# ============================================
+
+# --------------------------------------------
+# Dependencies
+# --------------------------------------------
+node_modules/
+.pnp
+.pnp.js
+yarn.lock
+pnpm-lock.yaml
+
+# Rust/Cargo
+target/
+Cargo.lock
+
+# Python
+venv/
+env/
+ENV/
+.venv
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+pip-log.txt
+pip-delete-this-directory.txt
+
+# --------------------------------------------
+# Build Outputs
+# --------------------------------------------
+dist/
+build/
+out/
+*.exe
+*.msi
+*.dmg
+*.app
+*.deb
+*.rpm
+
+# Tauri specific
+src-tauri/target/
+src-tauri/WixTools/
+src-tauri/*.log
+
+# --------------------------------------------
+# Environment & Secrets
+# --------------------------------------------
+.env
+.env.local
+.env.*.local
+.env.development
+.env.test
+.env.production
+!.env.example
+*.pem
+*.key
+secrets/
+
+# --------------------------------------------
+# IDE & Editor Files
+# --------------------------------------------
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+*.sublime-project
+*.sublime-workspace
+.project
+.classpath
+.settings/
+
+# --------------------------------------------
+# OS Generated Files
+# --------------------------------------------
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+Desktop.ini
+$RECYCLE.BIN/
+
+# --------------------------------------------
+# Logs
+# --------------------------------------------
+logs/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+
+# --------------------------------------------
+# Testing
+# --------------------------------------------
+coverage/
+.nyc_output/
+*.lcov
+
+# --------------------------------------------
+# Cache
+# --------------------------------------------
+.cache/
+.parcel-cache/
+.next/
+.nuxt/
+.vuepress/dist
+.serverless/
+.fusebox/
+.dynamodb/
+.tern-port
+
+# --------------------------------------------
+# Temporary Files
+# --------------------------------------------
+*.tmp
+*.temp
+*.bak
+*.backup
+*.orig
+*.rej
+
+# --------------------------------------------
+# Local Data (user-specific)
+# --------------------------------------------
+*.local
+voices/
+backend_data/
+*.db
+*.sqlite
+*.sqlite3
+
+# --------------------------------------------
+# Large Binary Files (if not needed in repo)
+# --------------------------------------------
+# Uncomment if you don't want to track large model files
+# *.bin
+# *.onnx
+# *.pt
+# *.pth
+# *.ckpt
+# *.safetensors
