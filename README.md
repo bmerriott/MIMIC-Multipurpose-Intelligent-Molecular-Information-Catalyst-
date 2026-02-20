@@ -1,3 +1,7 @@
+<p align="center">
+  <img width="256" height="256" alt="icon" src="https://github.com/user-attachments/assets/b035d3cf-8579-47a1-b910-69af3e00218b" />
+</p>
+
 # Mimic AI Desktop Assistant
 
 A privacy-first, AI-powered desktop assistant with voice synthesis, persistent memory, and local model inference. Mimic AI runs entirely on your local machine using Ollama for language models and supports Browser TTS and Qwen3-TTS for voice synthesis.
