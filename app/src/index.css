@@ -37,34 +37,34 @@
   }
 
   .dark {
-    --background: 240 10% 3.9%;
+    --background: 260 50% 5%;
     --foreground: 0 0% 98%;
-    --card: 240 10% 3.9%;
+    --card: 260 40% 8%;
     --card-foreground: 0 0% 98%;
-    --popover: 240 10% 3.9%;
+    --popover: 260 40% 8%;
     --popover-foreground: 0 0% 98%;
-    --primary: 0 0% 98%;
-    --primary-foreground: 240 5.9% 10%;
-    --secondary: 240 3.7% 15.9%;
+    --primary: 320 100% 50%;
+    --primary-foreground: 0 0% 100%;
+    --secondary: 260 30% 15%;
     --secondary-foreground: 0 0% 98%;
-    --muted: 240 3.7% 15.9%;
-    --muted-foreground: 240 5% 64.9%;
-    --accent: 240 3.7% 15.9%;
-    --accent-foreground: 0 0% 98%;
-    --destructive: 0 62.8% 30.6%;
+    --muted: 260 20% 18%;
+    --muted-foreground: 260 10% 60%;
+    --accent: 180 100% 50%;
+    --accent-foreground: 260 50% 5%;
+    --destructive: 0 84.2% 60.2%;
     --destructive-foreground: 0 0% 98%;
-    --border: 240 3.7% 15.9%;
-    --input: 240 3.7% 15.9%;
-    --ring: 240 4.9% 83.9%;
-    --sidebar-background: 240 5.9% 10%;
-    --sidebar-foreground: 240 4.8% 95.9%;
-    --sidebar-primary: 224.3 76.3% 48%;
+    --border: 260 30% 20%;
+    --input: 260 30% 20%;
+    --ring: 320 100% 50%;
+    --sidebar-background: 260 40% 6%;
+    --sidebar-foreground: 0 0% 98%;
+    --sidebar-primary: 320 100% 50%;
     --sidebar-primary-foreground: 0 0% 100%;
-    --sidebar-accent: 240 3.7% 15.9%;
-    --sidebar-accent-foreground: 240 4.8% 95.9%;
-    --sidebar-border: 240 3.7% 15.9%;
-    --sidebar-ring: 217.2 91.2% 59.8%;
-    --scrollbar-thumb: hsl(240 5% 64.9% / 0.3);
+    --sidebar-accent: 180 100% 50%;
+    --sidebar-accent-foreground: 260 50% 5%;
+    --sidebar-border: 260 30% 20%;
+    --sidebar-ring: 320 100% 50%;
+    --scrollbar-thumb: hsl(320 100% 50% / 0.3);
     --scrollbar-track: transparent;
   }
 }
@@ -128,11 +128,11 @@ html {
 
 /* Glow effects */
 .glow-primary {
-  box-shadow: 0 0 20px rgba(99, 102, 241, 0.5);
+  box-shadow: 0 0 20px rgba(255, 0, 255, 0.6), 0 0 40px rgba(255, 0, 255, 0.3);
 }
 
 .glow-secondary {
-  box-shadow: 0 0 20px rgba(139, 92, 246, 0.5);
+  box-shadow: 0 0 20px rgba(0, 255, 255, 0.6), 0 0 40px rgba(0, 255, 255, 0.3);
 }
 
 /* Animation for listening state */
@@ -165,9 +165,9 @@ html {
   animation: sound-wave 0.5s ease-in-out infinite;
 }
 
-/* Gradient text */
+/* Gradient text - Vaporwave */
 .gradient-text {
-  background: linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%);
+  background: linear-gradient(135deg, #ff00ff 0%, #00ffff 100%);
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
   background-clip: text;

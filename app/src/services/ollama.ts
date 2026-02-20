@@ -35,19 +35,37 @@ export class OllamaService {
   }
 
   async checkConnection(): Promise<boolean> {
+    const url = this.getUrl('/api/tags');
+    console.log('[Ollama] Checking connection at:', url);
+    
+    // Try with regular CORS first
     try {
-      const url = this.getUrl('/api/tags');
-      console.log('Checking Ollama connection at:', url);
-      
       const response = await fetch(url, {
         method: "GET",
         headers: { "Content-Type": "application/json" },
+        signal: AbortSignal.timeout(3000)
       });
       
-      console.log('Ollama connection status:', response.status);
-      return response.ok;
-    } catch (error) {
-      console.error("Ollama connection check failed:", error);
+      if (response.ok) {
+        console.log('[Ollama] Connection successful, status:', response.status);
+        return true;
+      }
+    } catch (error: any) {
+      console.log('[Ollama] CORS check failed:', error.message || error);
+    }
+    
+    // Try with no-cors mode for Tauri WebView
+    try {
+      await fetch(url, {
+        method: "GET",
+        mode: "no-cors",
+        signal: AbortSignal.timeout(3000)
+      });
+      // With no-cors, assume OK if no error
+      console.log('[Ollama] Connection successful (no-cors mode)');
+      return true;
+    } catch (error: any) {
+      console.error("[Ollama] Both connection checks failed:", error.message || error);
       return false;
     }
   }

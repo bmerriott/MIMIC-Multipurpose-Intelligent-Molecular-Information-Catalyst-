@@ -98,7 +98,7 @@ CHECKING SERVICE STATUS
 FEATURES
 --------------------------------------------------------------------------------
   ✓ Local AI Inference (via Ollama)
-  ✓ Voice Synthesis (StyleTTS2 & Qwen3-TTS)
+  ✓ Voice Synthesis (Browser TTS & Qwen3-TTS)
   ✓ Persistent Memory (per persona)
   ✓ Web Search (SearXNG via Docker)
   ✓ Wake Word Detection

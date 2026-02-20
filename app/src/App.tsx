@@ -285,22 +285,27 @@ function App() {
           className="text-center"
         >
           <motion.div 
-            className="w-20 h-20 mx-auto mb-6 rounded-full bg-gradient-to-br from-indigo-500 to-purple-600"
+            className="w-24 h-24 mx-auto mb-6 relative"
             animate={{ 
-              scale: [1, 1.1, 1],
-              rotate: [0, 180, 360],
+              scale: [1, 1.05, 1],
             }}
             transition={{ duration: 2, repeat: Infinity }}
-          />
-          <h1 className="text-3xl font-bold bg-gradient-to-r from-indigo-400 to-purple-400 bg-clip-text text-transparent">
+          >
+            <img 
+              src="/mimic.svg" 
+              alt="Mimic Logo" 
+              className="w-full h-full object-contain drop-shadow-[0_0_15px_rgba(255,0,255,0.6)]"
+            />
+          </motion.div>
+          <h1 className="text-4xl font-bold bg-gradient-to-r from-[#ff00ff] via-[#ff6ac1] to-[#00ffff] bg-clip-text text-transparent drop-shadow-[0_0_10px_rgba(255,0,255,0.5)]">
             Mimic
           </h1>
-          <p className="text-muted-foreground mt-2">Initializing AI Assistant...</p>
+          <p className="text-[#00ffff] mt-2 text-lg drop-shadow-[0_0_8px_rgba(0,255,255,0.6)]">Initializing AI Assistant...</p>
           <motion.p
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             transition={{ delay: 1 }}
-            className="text-xs text-muted-foreground mt-4"
+            className="text-xs text-[#ff6ac1] mt-4"
           >
             Connecting to Ollama...<br />
             Checking TTS backend...

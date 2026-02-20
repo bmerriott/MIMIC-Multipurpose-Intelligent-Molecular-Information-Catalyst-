@@ -64,7 +64,7 @@ export interface Persona {
         eq_high?: number;
         compression?: number;
         // Engine info
-        engine?: "styletts2" | "qwen3" | "off";
+        engine?: "off" | "browser" | "qwen3";
         qwen3_model_size?: "0.6B" | "1.7B";
         extraction_model_size?: "0.6B" | "1.7B";
         use_voice_profile?: boolean;
@@ -109,7 +109,7 @@ export interface AppSettings {
   memory_importance_threshold: number; // Minimum importance (0-1) for storing memories
   memory_summarize_threshold: number; // Number of messages before summarizing
   tts_mode: "browser" | "qwen3" | "auto"; // Legacy setting, now use tts_engine
-  tts_engine?: "styletts2" | "qwen3" | "off"; // TTS engine selection (off = text only)
+  tts_engine?: "off" | "browser" | "qwen3"; // TTS engine selection (off = text only, browser = system TTS, qwen3 = AI voice)
   qwen3_model_size?: "0.6B" | "1.7B"; // Qwen3 model size (0.6B = faster, 1.7B = better quality)
   qwen3_flash_attention?: boolean; // Use flash attention for Qwen3 (reduces VRAM)
   microphone_device?: string; // Device ID for speech recognition (empty = default)

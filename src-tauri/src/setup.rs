@@ -35,9 +35,10 @@ const REQUIRED_PACKAGES: &[&str] = &[
     "soundfile",
     "python-dotenv",
     "requests",
-    "styletts2",
-    "qwen-tts",
 ];
+
+// TTS engine - Qwen3 only (StyleTTS2 removed due to dependency conflicts)
+const TTS_PACKAGES: &[&str] = &["qwen-tts"];
 
 /// Check if Python is installed and get version
 pub fn check_python() -> Option<String> {
@@ -197,19 +198,33 @@ fn run_command_hidden(program: &str, args: &[&str]) -> Option<std::process::Outp
     }
 }
 
-/// Check if Python dependencies are installed
+/// Check if Python dependencies are installed using pip list
 pub fn check_dependencies() -> (bool, Vec<String>) {
     let mut missing = Vec::new();
     
+    // Check base packages using pip list (more reliable than import)
+    let pip_list_output = run_command_hidden("python", &["-m", "pip", "list"]);
+    let installed_packages: String = match pip_list_output {
+        Some(out) if out.status.success() => {
+            String::from_utf8_lossy(&out.stdout).to_lowercase()
+        }
+        _ => String::new(),
+    };
+    
+    // Check base packages
     for package in REQUIRED_PACKAGES {
-        let check_cmd = format!("import {}; print('OK')", package.replace("-", "_"));
-        let output = run_command_hidden("python", &["-c", &check_cmd]);
+        // Package names in pip list may have dashes or underscores
+        // Check both the original name and variations
+        let package_check = package.to_lowercase();
+        let package_underscore = package_check.replace("-", "_");
+        let package_dash = package_check.replace("_", "-");
         
-        match output {
-            Some(out) if out.status.success() => {}
-            _ => {
-                missing.push(package.to_string());
-            }
+        let is_installed = installed_packages.contains(&package_check) || 
+                          installed_packages.contains(&package_underscore) ||
+                          installed_packages.contains(&package_dash);
+        
+        if !is_installed {
+            missing.push(package.to_string());
         }
     }
     
@@ -235,13 +250,116 @@ pub fn run_setup_check() -> SetupStatus {
     }
 }
 
-/// Install Python dependencies
+/// Install Python dependencies (hidden)
 pub fn install_dependencies() -> Result<(), String> {
     println!("Installing Python dependencies...");
     
-    let packages = REQUIRED_PACKAGES.join(" ");
-    let output = run_command_hidden("python", &["-m", "pip", "install", &packages])
-        .ok_or("Failed to run pip")?;
+    // Install base packages one by one
+    for package in REQUIRED_PACKAGES {
+        println!("  Installing {}...", package);
+        let output = run_command_hidden("python", &["-m", "pip", "install", package])
+            .ok_or_else(|| format!("Failed to run pip install for {}", package))?;
+        
+        if !output.status.success() {
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            return Err(format!("pip install failed for {}: {}", package, stderr));
+        }
+    }
+    
+    // Install TTS packages separately to handle dependency conflicts
+    println!("  Installing TTS packages (this may take a while)...");
+    
+    // Install PyTorch CPU first (stable base)
+    println!("    Installing PyTorch CPU...");
+    let _ = run_command_hidden("python", &["-m", "pip", "install", "torch", "torchaudio", "--index-url", "https://download.pytorch.org/whl/cpu"]);
+    
+    // Install qwen-tts (AI voice creation engine)
+    println!("    Installing qwen-tts...");
+    let _ = run_command_hidden("python", &["-m", "pip", "install", "qwen-tts"]);
+    
+    println!("Dependencies installed successfully");
+    Ok(())
+}
+
+/// Install Python dependencies with visible window (for first-time setup)
+#[cfg(target_os = "windows")]
+pub fn install_dependencies_visible() -> Result<(), String> {
+    use std::process::Stdio;
+    use std::os::windows::process::CommandExt;
+    
+    const CREATE_NEW_CONSOLE: u32 = 0x08000000;
+    
+    println!("Installing Python dependencies (visible mode)...");
+    
+    // Create a batch file that shows the install progress
+    let temp_dir = std::env::temp_dir();
+    let batch_path = temp_dir.join("mimic_install_deps.bat");
+    
+    // Build pip install arguments with each package quoted separately
+    let pip_args: Vec<String> = REQUIRED_PACKAGES.iter().map(|p| format!("\"{}\"", p)).collect();
+    let packages_list = REQUIRED_PACKAGES.join(" ");
+    let tts_packages_list = TTS_PACKAGES.join(" ");
+    
+    let batch_content = format!(
+        r#"@echo off
+echo =========================================
+echo  Mimic AI - Installing Python Dependencies
+echo =========================================
+echo.
+echo This may take 5-10 minutes on first launch.
+echo.
+
+:: Step 1: Install base packages
+echo [1/3] Installing base packages: {}
+python.exe -m pip install {}
+if %errorlevel% neq 0 (
+    echo ERROR: Base packages installation failed!
+    pause
+    exit /b 1
+)
+
+:: Step 2: Install PyTorch CPU (stable base)
+echo [2/3] Installing PyTorch (CPU version for stability)...
+python.exe -m pip install torch torchaudio --index-url https://download.pytorch.org/whl/cpu
+
+:: Step 3: Install Qwen3-TTS (AI voice creation engine)
+echo [3/3] Installing Qwen3-TTS (AI voice engine)...
+python.exe -m pip install qwen-tts
+if %errorlevel% neq 0 (
+    echo WARNING: Qwen3-TTS installation failed. Browser TTS will be used as fallback.
+) else (
+    echo Qwen3-TTS installed successfully!
+)
+
+echo.
+echo =========================================
+echo  Installation Complete!
+echo =========================================
+echo.
+echo Voice Engines:
+echo   - Qwen3-TTS: AI voice creation (if installed)
+echo   - Browser TTS: Always available (system voice)
+echo.
+timeout /t 3 /nobreak >nul
+exit /b 0
+"#,
+        packages_list, pip_args.join(" ")
+    );
+    
+    std::fs::write(&batch_path, batch_content)
+        .map_err(|e| format!("Failed to create batch file: {}", e))?;
+    
+    // Run the batch file in a new visible window
+    let output = Command::new("cmd")
+        .args(&["/c", "start", "/wait", "/min", batch_path.to_str().unwrap()])
+        .creation_flags(CREATE_NEW_CONSOLE)
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .output()
+        .map_err(|e| format!("Failed to run install: {}", e))?;
+    
+    // Clean up batch file
+    let _ = std::fs::remove_file(&batch_path);
     
     if output.status.success() {
         println!("Dependencies installed successfully");
@@ -250,6 +368,12 @@ pub fn install_dependencies() -> Result<(), String> {
         let stderr = String::from_utf8_lossy(&output.stderr);
         Err(format!("pip install failed: {}", stderr))
     }
+}
+
+/// Non-Windows fallback
+#[cfg(not(target_os = "windows"))]
+pub fn install_dependencies_visible() -> Result<(), String> {
+    install_dependencies()
 }
 
 /// Show setup window if needed

@@ -489,7 +489,6 @@ export function WakeWordListener() {
     const hasVoicecreate = !!persona?.voice_create?.has_audio;
     const isSyntheticVoice = persona?.voice_id === "synthetic" || persona?.voice_id === "created";
     const useQwen3 = hasVoicecreate && isSyntheticVoice && settingsRef.current.tts_engine === "qwen3";
-    const useStyleTTS2 = hasVoicecreate && isSyntheticVoice && settingsRef.current.tts_engine === "styletts2";
     
     // Debug logging for voice selection
     console.log('🎵 Voice selection check:', {
@@ -499,7 +498,6 @@ export function WakeWordListener() {
       voiceId: persona?.voice_id,
       ttsEngine: settingsRef.current.tts_engine,
       useQwen3,
-      useStyleTTS2,
       voiceParams: voiceParams ? 'present' : 'missing'
     });
     
@@ -512,7 +510,7 @@ export function WakeWordListener() {
       
       ttsService.setBaseUrl(settingsRef.current.tts_backend_url);
       
-      if (useQwen3 || useStyleTTS2) {
+      if (useQwen3) {
         // Load voice data for synthetic/created voices
         try {
           const voiceData = await loadVoiceAudio(persona!.id);
@@ -520,8 +518,8 @@ export function WakeWordListener() {
           let referenceAudio: string | undefined = undefined;
           let referenceText: string | undefined = undefined;
           
-          // Guard: If Qwen3 is selected but no reference audio available, fallback to StyleTTS2
-          let effectiveEngine: "qwen3" | "styletts2" = useQwen3 ? "qwen3" : "styletts2";
+          // Guard: If Qwen3 is selected but no reference audio available, fallback to browser TTS
+          let effectiveEngine: "qwen3" | "browser" = useQwen3 ? "qwen3" : "browser";
           
           if (voiceData?.audio_data) {
             referenceAudio = voiceData.audio_data;
@@ -530,9 +528,9 @@ export function WakeWordListener() {
           } else {
             console.warn('🎵 No reference audio found');
             if (useQwen3) {
-              console.warn('🎵 Qwen3 requires reference audio - falling back to StyleTTS2');
-              effectiveEngine = 'styletts2';
-              toast.info('Qwen3 requires a voice. Using StyleTTS2 fallback.');
+              console.warn('🎵 Qwen3 requires reference audio - falling back to Browser TTS');
+              effectiveEngine = 'browser';
+              toast.info('Qwen3 requires a voice sample. Using Browser TTS fallback.');
             }
           }
           
@@ -562,7 +560,7 @@ export function WakeWordListener() {
             eq_mid: voiceParams?.eq_mid,
             eq_high: voiceParams?.eq_high,
             compression: voiceParams?.compression,
-            // Engine selection - use effectiveEngine (may fallback to styletts2)
+            // Engine selection - use effectiveEngine (may fallback to browser)
             engine: effectiveEngine,
             qwen3_model_size: (voiceParams?.qwen3_model_size as Qwen3ModelSize) || settingsRef.current.qwen3_model_size || '0.6B',
             use_flash_attention: settingsRef.current.qwen3_flash_attention !== false,

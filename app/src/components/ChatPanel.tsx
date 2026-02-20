@@ -75,9 +75,6 @@ export function ChatPanel() {
   // Global audio player hook
   const globalPlayAudio = useStore(state => state.playAudio);
   
-  // Track enrolled voices for faster synthesis (voice_id -> enrolled status)
-  const [enrolledVoiceIds, _setEnrolledVoiceIds] = useState<Set<string>>(new Set());
-
   // Ref to always have latest currentPersona (avoids stale closure issues)
   const currentPersonaRef = useRef(currentPersona);
   useEffect(() => {
@@ -525,17 +522,17 @@ User's request: ${cleanUserMessage}
                            persona.voice_id === "created" &&
                            !persona.voice_create?.voice_config;
     
-    // Determine which voice system to use
-    const useSyntheticVoice = hasSyntheticVoice && settings.tts_mode !== "browser";
-    const useCreatedVoice = hasCreatedVoice && settings.tts_mode !== "browser";
-    const useBackendTTS = settings.tts_mode === "qwen3" || settings.tts_mode === "auto";
+    // Determine which voice system to use based on tts_engine setting
+    // tts_engine: 'off' | 'browser' | 'qwen3'
+    const useQwen3Voice = hasSyntheticVoice && settings.tts_engine === "qwen3";
+    const useBackendTTS = settings.tts_engine === "qwen3";
     
     console.log("ðŸ”Š [ChatPanel] Voice selection:", { 
-      useSyntheticVoice, 
-      useCreatedVoice, 
+      useQwen3Voice,
       useBackendTTS,
       hasSyntheticVoice,
-      hasCreatedVoice 
+      hasCreatedVoice,
+      tts_engine: settings.tts_engine
     });
     
     
@@ -549,7 +546,7 @@ User's request: ${cleanUserMessage}
       // Note: No timeout - let the backend process as long as needed
       // Long LLM responses can take significant time to synthesize
       
-      if (useSyntheticVoice && persona?.voice_create?.voice_config?.params) {
+      if (useQwen3Voice && persona?.voice_create?.voice_config?.params) {
         // ===== VOICE CREATION SYSTEM =====
         // Create voice using unified TTS API
         try {
@@ -557,7 +554,7 @@ User's request: ${cleanUserMessage}
           
           const ttsStartTime = performance.now();
           const params = persona.voice_create.voice_config.params;
-          const engine = (settings.tts_engine as TTSEngine) || 'styletts2';
+          const engine = (settings.tts_engine as TTSEngine) || 'browser';
           
           console.log('ðŸŽµ Creating voice with unified TTS:', {
             engine: engine,
@@ -585,10 +582,10 @@ User's request: ${cleanUserMessage}
                 console.error('ðŸŽµ WARNING: Reference audio does not look like valid base64!');
               }
             } else {
-              console.warn('ðŸŽµ No reference audio found for Qwen3 - falling back to StyleTTS2');
+              console.warn('ðŸŽµ No reference audio found for Qwen3 - falling back to Browser TTS');
               console.warn('ðŸŽµ Qwen3 requires reference audio. Please create a voice in Voice Studio first.');
-              effectiveEngine = 'styletts2';
-              toast.info('Qwen3 requires a voice. Falling back to StyleTTS2. Please create a voice first.');
+              effectiveEngine = 'browser';
+              toast.info('Qwen3 requires a voice sample. Falling back to Browser TTS. Please create a voice first.');
             }
           }
           
@@ -631,43 +628,6 @@ User's request: ${cleanUserMessage}
         } catch (error) {
           console.error("Voice creation failed:", error);
           toast.error(`Voice creation failed: ${error instanceof Error ? error.message : 'Unknown error'}. Using browser TTS.`);
-          // Fall through to browser TTS
-        }
-      } else if (useCreatedVoice) {
-        // ===== LEGACY CREATED VOICE SYSTEM (deprecated) =====
-        // This branch handles old personas with audio-based voice creation
-        // This is being phased out in favor of synthetic voices
-        console.warn('ðŸŽµ Legacy created voice detected. Consider re-creating this voice using the Voice Studio.');
-        try {
-          const voiceData = await loadVoiceAudio(persona.id);
-          if (!voiceData) {
-            throw new Error("Voice data not found");
-          }
-          
-          ttsService.setBaseUrl(settings.tts_backend_url);
-          
-          // Try to use saved voice ID if available
-          const voiceId = `persona_${persona.id}`;
-          const ttsStartTime = performance.now();
-          let response;
-          
-          if (enrolledVoiceIds.has(voiceId)) {
-            console.log('ðŸŽµ Using saved voice for synthesis:', voiceId);
-            response = await ttsService.synthesizeWithSavedVoice(voiceId, text, "English");
-          } else {
-            // Fallback: Try to save the voice params first, then synthesize
-            console.log('ðŸŽµ Attempting to convert legacy voice to synthetic...');
-            // For legacy voices, we'll fall back to browser TTS since we don't have params
-            throw new Error("Legacy created voices are deprecated. Please recreate this voice in Voice Studio.");
-          }
-          
-          console.log(`[TIMING] TOTAL TTS time: ${(performance.now() - ttsStartTime).toFixed(0)}ms`);
-          audioData = response.audio_data;
-        } catch (error) {
-          console.error("Legacy voice TTS failed:", error);
-          toast.error(`Legacy voice no longer supported. Please recreate this voice in Voice Studio.`, {
-            duration: 5000,
-          });
           // Fall through to browser TTS
         }
       } else if (useBackendTTS) {
@@ -1311,16 +1271,16 @@ User's request: ${cleanUserMessage}
                 Off
               </button>
               <button
-                onClick={() => updateSettings({ tts_engine: 'styletts2' })}
+                onClick={() => updateSettings({ tts_engine: 'browser' })}
                 className={`px-2 py-0.5 text-xs rounded transition-colors flex items-center gap-1 ${
-                  settings.tts_engine === 'styletts2' 
+                  settings.tts_engine === 'browser' 
                     ? 'bg-primary text-primary-foreground' 
                     : 'text-muted-foreground hover:text-foreground'
                 }`}
-                title="StyleTTS2 - Fast, lightweight synthesis"
+                title="Browser TTS - Uses your system's built-in text-to-speech"
               >
                 <svg className="w-3 h-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"></polygon><path d="M15.54 8.46a5 5 0 0 1 0 7.07"></path></svg>
-                StyleTTS
+                Browser
               </button>
               <button
                 onClick={() => updateSettings({ tts_engine: 'qwen3' })}

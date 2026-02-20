@@ -1,6 +1,6 @@
 # Mimic AI Desktop Assistant
 
-A privacy-first, AI-powered desktop assistant with voice synthesis, persistent memory, and local model inference. Mimic AI runs entirely on your local machine using Ollama for language models and supports both StyleTTS2 and Qwen3-TTS for high-quality voice synthesis.
+A privacy-first, AI-powered desktop assistant with voice synthesis, persistent memory, and local model inference. Mimic AI runs entirely on your local machine using Ollama for language models and supports Browser TTS and Qwen3-TTS for voice synthesis.
 
 ## Table of Contents
 - [Features](#features)
@@ -21,7 +21,7 @@ A privacy-first, AI-powered desktop assistant with voice synthesis, persistent m
 
 ### Core Capabilities
 - **Local AI Inference**: Uses Ollama for running LLMs locally (Llama, Mistral, etc.)
-- **Voice Synthesis**: Dual TTS engine support (StyleTTS2 & Qwen3-TTS)
+- **Voice Synthesis**: Browser TTS (no setup) and Qwen3-TTS (AI voice cloning)
 - **Persistent Memory**: Conversation memory with per-persona context
 - **Web Search**: Privacy-focused SearXNG integration
 - **Wake Word Detection**: Hands-free activation with custom wake words
@@ -57,7 +57,7 @@ A privacy-first, AI-powered desktop assistant with voice synthesis, persistent m
 - **Docker Desktop**: Optional, for SearXNG web search
 
 ### VRAM Requirements (Voice Synthesis)
-- StyleTTS2: ~2GB VRAM
+- Browser TTS: No VRAM required (uses system voice)
 - Qwen3-TTS 0.6B: ~3GB VRAM  
 - Qwen3-TTS 1.7B: ~6GB VRAM
 
@@ -145,7 +145,7 @@ The launcher will:
 ### Creating a Voice
 1. Go to **Voice Studio** tab
 2. Select or create a persona
-3. Choose TTS Engine (StyleTTS2 for speed, Qwen3 for quality)
+3. Choose TTS Engine (Browser for simplicity, Qwen3 for AI voice cloning)
 4. Upload reference audio or record your voice
 5. Adjust voice parameters (pitch, speed, emotion)
 6. Click "Create Voice" and save to persona
@@ -178,7 +178,7 @@ The launcher will:
 ┌─────────────────────────┼───────────────────────────────────┐
 │              TTS Backend (Python FastAPI)                    │
 │  ┌─────────────┐ ┌─────────────┐ ┌─────────────────────┐   │
-│  │ StyleTTS2   │ │  Qwen3-TTS  │ │  Legal Watermarker  │   │
+│  │ Browser TTS │ │  Qwen3-TTS  │ │  Legal Watermarker  │   │
 │  │  Engine     │ │   Engine    │ │    (AudioSeal)      │   │
 │  └─────────────┘ └─────────────┘ └─────────────────────┘   │
 │                         │                                    │
@@ -272,7 +272,7 @@ User Input
 ┌─────────────────────────────────────────────┐
 │  5. Audio Output (if TTS enabled)           │
 │     - Persona voice profile loaded          │
-│     - TTS engine called (StyleTTS2/Qwen3)   │
+│     - TTS engine called (Browser/Qwen3)   │
 │     - Audio watermark embedded              │
 │     - Audio played via Web Audio API        │
 └─────────────────────────────────────────────┘
@@ -295,7 +295,7 @@ User Uploads Reference Audio
 │     POST /api/voice/create                  │
 │     - reference_audio: base64 WAV           │
 │     - reference_text: transcription         │
-│     - engine: styletts2 or qwen3            │
+│     - engine: browser or qwen3            │
 │     - voice_params: pitch, speed, etc.      │
 └─────────────────────────────────────────────┘
     ↓
@@ -364,7 +364,7 @@ Conversation Happens
 - **Features**:
   - Reference audio upload/recording
   - Voice parameter tuning (pitch, speed, emotion)
-  - TTS engine selection (StyleTTS2/Qwen3)
+  - TTS engine selection (Browser/Qwen3)
   - Audio watermark detection
 - **Integrates with**:
   - `tts.ts` (voice creation API)
@@ -401,8 +401,8 @@ Conversation Happens
   - `POST /watermark/detect` - Detect AI watermark
   - `GET /health` - Health check
 - **Engines**:
-  - StyleTTS2: Fast, lightweight, no reference needed
-  - Qwen3-TTS: Higher quality, requires reference
+  - Browser TTS: Uses system voice, no setup required
+  - Qwen3-TTS: AI voice cloning, requires reference audio
 
 #### 2. watermarker.py
 - **Purpose**: Multi-layer audio watermarking
@@ -489,7 +489,7 @@ Settings are stored in `localStorage` under `mimic_settings`:
   "default_model": "llama3.2",
   "vision_model": "bakllava",
   "tts_backend_url": "http://localhost:8000",
-  "tts_engine": "styletts2",
+  "tts_engine": "browser",
   "qwen3_model_size": "0.6B",
   "qwen3_flash_attention": true,
   "voice_volume": 1.0,

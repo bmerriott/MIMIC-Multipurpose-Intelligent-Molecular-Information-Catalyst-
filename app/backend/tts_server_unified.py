@@ -22,8 +22,15 @@ from enum import Enum
 # Force UTF-8 encoding for stdout/stderr on Windows to prevent charmap codec errors
 if sys.platform == 'win32':
     import codecs
-    sys.stdout = codecs.getwriter('utf-8')(sys.stdout.buffer, 'strict')
-    sys.stderr = codecs.getwriter('utf-8')(sys.stderr.buffer, 'strict')
+    try:
+        # Only set up UTF-8 encoding if we have a real console (not when spawned as subprocess)
+        if hasattr(sys.stdout, 'buffer'):
+            sys.stdout = codecs.getwriter('utf-8')(sys.stdout.buffer, 'strict')
+        if hasattr(sys.stderr, 'buffer'):
+            sys.stderr = codecs.getwriter('utf-8')(sys.stderr.buffer, 'strict')
+    except (AttributeError, TypeError):
+        # Running without a console (e.g., as Windows service), skip encoding setup
+        pass
     os.environ['PYTHONIOENCODING'] = 'utf-8'
 
 # Load environment variables from .env file
@@ -733,7 +740,7 @@ class UnifiedTTSManager:
         
         # Generate voice
         try:
-            wavs, sr = model.generate_voice_create(
+            wavs, sr = model.generate_voice_clone(
                 text=text,
                 language="English",
                 ref_audio=(ref_audio_array, sample_rate),
@@ -869,7 +876,7 @@ class UnifiedTTSManager:
         # Create voice create prompt using Qwen3
         try:
             # Use create_voice_create_prompt to extract the speaker representation
-            voice_prompt = model.create_voice_create_prompt(
+            voice_prompt = model.create_voice_clone_prompt(
                 ref_audio=(ref_audio_array, sample_rate),
                 ref_text=reference_text,
                 x_vector_only_mode=False  # Use full prompt for better quality
@@ -1958,7 +1965,7 @@ async def tts_stream_chunks(request: StreamingTTSRequest):
                 model = manager.load_qwen3(qwen_size, profile.params.get('use_flash_attention', True))
                 
                 # Generate
-                wavs, sr = model.generate_voice_create(
+                wavs, sr = model.generate_voice_clone(
                     text=chunk_text,
                     language="English",
                     ref_audio=(ref_audio, 24000),

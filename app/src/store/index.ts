@@ -186,7 +186,7 @@ const defaultSettings: AppSettings = {
   memory_importance_threshold: 0.5, // Only store memories with importance >= 0.5
   memory_summarize_threshold: 20,
   tts_mode: "auto", // Legacy setting
-  tts_engine: "styletts2", // Default TTS engine (styletts2 or qwen3)
+  tts_engine: "browser", // Default TTS engine (off, browser, or qwen3)
   qwen3_model_size: "0.6B", // Default to smaller model for speed
   qwen3_flash_attention: true, // Use flash attention by default
   microphone_device: "", // Empty = use system default
@@ -447,13 +447,13 @@ export const useStore = create<StoreState>((set, get) => ({
       
       get().updatePersona(updatedPersona);
       
-      // If current TTS engine is qwen3, switch to styletts2
+      // If current TTS engine is qwen3, switch to browser
       // because qwen3 requires reference audio
       const currentSettings = get().settings;
       if (currentSettings.tts_engine === "qwen3") {
-        console.log("[Store] TTS engine was qwen3, switching to styletts2 (no voice available)");
-        get().updateSettings({ tts_engine: "styletts2" });
-        toast.info("Switched to StyleTTS2 engine (Qwen3 requires a voice)");
+        console.log("[Store] TTS engine was qwen3, switching to browser (no voice available)");
+        get().updateSettings({ tts_engine: "browser" });
+        toast.info("Switched to Browser TTS (Qwen3 requires a voice)");
       }
       
       console.log("[Store] Voice cleared successfully");

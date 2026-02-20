@@ -34,7 +34,7 @@ import { Slider } from "./ui/slider";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "./ui/select";
 import { Switch } from "./ui/switch";
 import { toast } from "sonner";
-import { ttsService, type TTSEngine, type Qwen3ModelSize } from "@/services/tts";
+import { ttsService, type TTSEngine, type Qwen3ModelSize, type EngineStatus } from "@/services/tts";
 import { puter } from "@/services/puter";
 import { audioEffects, type AudioEffectParams } from "@/services/audioEffects";
 import { 
@@ -146,7 +146,7 @@ interface VoiceParams {
 }
 
 const defaultParams: VoiceParams = {
-  engine: "styletts2",
+  engine: "browser",
   qwen3Size: "0.6B",
   extractionModelSize: "1.7B",
   useFlashAttention: true,
@@ -207,10 +207,7 @@ export function VoiceCreator() {
   
   const [selectedPersonaId, setSelectedPersonaId] = useState(currentPersona?.id || "");
   const [isBackendConnected, setIsBackendConnected] = useState(false);
-  const [engineStatus, setEngineStatus] = useState<{
-    styletts2_available: boolean;
-    qwen3_available: boolean;
-  } | null>(null);
+  const [engineStatus, setEngineStatus] = useState<EngineStatus | null>(null);
   
   const [params, setParams] = useState<VoiceParams>({ ...defaultParams });
   const [targetText, setTargetText] = useState("Hello! This is my custom voice created with Mimic AI.");
@@ -267,7 +264,7 @@ export function VoiceCreator() {
   useEffect(() => {
     setParams(p => ({
       ...p,
-      engine: settings.tts_engine || "styletts2",
+      engine: settings.tts_engine || "browser",
       extractionModelSize: settings.qwen3_model_size || "0.6B",
       useFlashAttention: settings.qwen3_flash_attention !== false,
     }));
@@ -1165,20 +1162,16 @@ export function VoiceCreator() {
           
           <div className="grid grid-cols-2 gap-3">
             <button
-              onClick={() => setParams(p => ({ ...p, engine: "styletts2" }))}
+              onClick={() => setParams(p => ({ ...p, engine: "browser" }))}
               className={`p-3 rounded-lg border text-left transition-all ${
-                params.engine === "styletts2"
+                params.engine === "browser"
                   ? "border-primary bg-primary/10"
                   : "border-border hover:border-primary/50"
               }`}
             >
-              <div className="font-medium text-sm">StyleTTS2</div>
-              <div className="text-xs text-muted-foreground">Fast, lightweight</div>
-              {engineStatus && (
-                <div className={`text-xs mt-1 ${engineStatus.styletts2_available ? 'text-green-400' : 'text-amber-400'}`}>
-                  {engineStatus.styletts2_available ? 'Available' : 'Not installed'}
-                </div>
-              )}
+              <div className="font-medium text-sm">Browser TTS</div>
+              <div className="text-xs text-muted-foreground">System voice, no setup</div>
+              <div className="text-xs mt-1 text-green-400">Always Available</div>
             </button>
             
             <button
@@ -1190,7 +1183,7 @@ export function VoiceCreator() {
               }`}
             >
               <div className="font-medium text-sm">Qwen3-TTS</div>
-              <div className="text-xs text-muted-foreground">Higher quality</div>
+              <div className="text-xs text-muted-foreground">AI voice creation</div>
               {engineStatus && (
                 <div className={`text-xs mt-1 ${engineStatus.qwen3_available ? 'text-green-400' : 'text-amber-400'}`}>
                   {engineStatus.qwen3_available ? 'Available' : 'Not installed'}
@@ -1265,7 +1258,7 @@ export function VoiceCreator() {
             <Mic className="w-4 h-4 text-amber-400" />
             Reference Audio
             {params.engine === "qwen3" && <span className="text-amber-400 text-xs">(Required)</span>}
-            {params.engine === "styletts2" && <span className="text-muted-foreground text-xs">(Optional)</span>}
+            {params.engine === "browser" && <span className="text-muted-foreground text-xs">(Not used)</span>}
           </Label>
           
           <div className={`flex items-center gap-2 text-xs px-3 py-2 rounded ${puterAvailable ? 'text-green-400 bg-green-400/10' : 'text-amber-400 bg-amber-400/10'}`}>
@@ -1450,7 +1443,7 @@ export function VoiceCreator() {
           <p className="text-xs text-muted-foreground">
             {params.engine === "qwen3" 
               ? "Qwen3 requires reference audio to create a voice profile. The reference text helps improve quality."
-              : "StyleTTS2 can work with or without reference audio. Adding reference audio improves voice similarity."
+              : "Browser TTS uses your system's built-in voice. No reference audio needed, but no voice cloning available."
             }
           </p>
         </div>
@@ -1874,7 +1867,7 @@ export function VoiceCreator() {
         <div className="flex items-start gap-2 text-sm text-muted-foreground bg-muted p-3 rounded-lg">
           <Info className="w-4 h-4 mt-0.5 flex-shrink-0" />
           <ul className="list-disc list-inside space-y-1">
-            <li>StyleTTS2 is faster and works without reference audio</li>
+            <li>Browser TTS is always available and requires no setup</li>
             <li>Qwen3 produces higher quality but requires reference audio and more VRAM</li>
             <li>Use 0.6B model with Flash Attention for lower memory usage (~3GB VRAM)</li>
             <li>All generated audio is watermarked for identification</li>

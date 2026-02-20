@@ -21,7 +21,7 @@ const DETACHED_PROCESS: u32 = 0x00000008;
 
 mod setup;
 mod dependency_manager;
-use setup::{check_setup_status, install_python_deps, find_python_executable};
+use setup::{check_setup_status, install_python_deps, find_python_executable, install_dependencies_visible};
 use dependency_manager::{check_dependencies, install_dependencies_command, get_python_path};
 
 // Helper to write startup logs
@@ -144,6 +144,35 @@ fn main() {
         log_startup("    [Docker Thread] Docker startup complete");
     });
     
+    // 2.5 Install Python dependencies if needed (before starting Python backend)
+    let setup_status = setup::run_setup_check();
+    log_startup(&format!("[*] Python check: installed={}, deps={}", 
+        setup_status.python_installed, setup_status.dependencies_installed));
+    if !setup_status.missing_deps.is_empty() {
+        log_startup(&format!("    Missing packages: {}", setup_status.missing_deps.join(", ")));
+    }
+    
+    if setup_status.python_installed && !setup_status.dependencies_installed {
+        log_startup("[*] Installing Python dependencies...");
+        log_startup(&format!("    Missing: {}", setup_status.missing_deps.join(", ")));
+        log_startup("    This may take 2-5 minutes on first launch...");
+        
+        // Install with visible window so user sees progress
+        match setup::install_dependencies_visible() {
+            Ok(_) => log_startup("    Dependencies installed successfully"),
+            Err(e) => {
+                log_startup(&format!("    ERROR: Failed to install dependencies: {}", e));
+                log_startup("    TTS features will not work. Please install manually:");
+                log_startup("    pip install fastapi uvicorn python-dotenv torch numpy");
+            }
+        }
+    } else if !setup_status.python_installed {
+        log_startup("[!] WARNING: Python not found. TTS will not work.");
+        log_startup("    Please install Python 3.10-3.12 from https://python.org");
+    } else {
+        log_startup("    Python dependencies OK");
+    }
+    
     // 3. Start Python TTS server in its own thread - isolated from others
     let app_data_dir_create = app_data_dir.clone();
     let python_thread = std::thread::spawn(move || {
@@ -163,6 +192,16 @@ fn main() {
         .setup(|app| {
             let app_handle = app.handle();
             
+            // ENSURE WINDOW IS SHOWN FIRST - regardless of other setup issues
+            if let Some(main_window) = app_handle.get_window("main") {
+                let _ = main_window.show();
+                let _ = main_window.set_focus();
+                let _ = main_window.center();
+                log_startup("[*] Main window shown and focused");
+            } else {
+                log_startup("[!] Warning: Main window not found");
+            }
+            
             // Try to check for Python, but don't crash if it fails
             let setup_status = setup::run_setup_check();
             if !setup_status.python_installed {
@@ -178,6 +217,7 @@ fn main() {
                 Some(dir) => dir,
                 None => {
                     eprintln!("Warning: Could not get app data directory");
+                    // Continue anyway - window is already shown
                     return Ok(());
                 }
             };
@@ -196,16 +236,6 @@ fn main() {
             {
                 let state: State<BackendState> = app_handle.state();
                 *state.port.lock().unwrap() = 8000;
-            }
-            
-            // Ensure main window is visible and focused
-            if let Some(main_window) = app_handle.get_window("main") {
-                let _ = main_window.show();
-                let _ = main_window.set_focus();
-                let _ = main_window.center();
-                log_startup("[*] Main window shown and focused");
-            } else {
-                log_startup("[!] Warning: Main window not found");
             }
 
             Ok(())

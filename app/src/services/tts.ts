@@ -1,7 +1,7 @@
 import type { TTSCreateRequest, TTSGenerateRequest, TTSResponse } from "@/types";
 
 // TTS Engine types
-export type TTSEngine = "styletts2" | "qwen3" | "off";
+export type TTSEngine = "off" | "browser" | "qwen3";
 export type Qwen3ModelSize = "0.6B" | "1.7B";
 
 // Voice creation parameters - Comprehensive tuning
@@ -62,8 +62,8 @@ export interface SyntheticVoiceParams {
 }
 
 export interface EngineStatus {
-  styletts2_available: boolean;
   qwen3_available: boolean;
+  browser_tts_available: boolean;
   cuda_available: boolean;
   current_engine: string;
   qwen3_loaded_size: string | null;
@@ -81,11 +81,32 @@ export class TTSService {
   }
 
   async checkConnection(): Promise<boolean> {
+    // Try with CORS mode first
     try {
-      const response = await fetch(`${this.baseUrl}/health`, { method: "GET" });
-      return response.ok;
-    } catch (error) {
-      console.error("TTS backend connection check failed:", error);
+      const response = await fetch(`${this.baseUrl}/health`, { 
+        method: "GET",
+        signal: AbortSignal.timeout(3000)
+      });
+      if (response.ok) {
+        console.log("[TTS] Connection check successful (CORS mode)");
+        return true;
+      }
+    } catch (error: any) {
+      console.log("[TTS] CORS check failed:", error.message || error);
+    }
+    
+    // Try with no-cors mode for Tauri WebView
+    try {
+      await fetch(`${this.baseUrl}/health`, { 
+        method: "GET",
+        mode: "no-cors",
+        signal: AbortSignal.timeout(3000)
+      });
+      // With no-cors, we can't read response but if no error, assume OK
+      console.log("[TTS] Connection check successful (no-cors mode)");
+      return true;
+    } catch (error: any) {
+      console.error("[TTS] Both connection checks failed:", error.message || error);
       return false;
     }
   }
@@ -427,7 +448,7 @@ export class TTSService {
       expressiveness: request.params.expressiveness,
       stability: request.params.stability,
       // Engine selection
-      engine: "styletts2",
+      engine: "browser",
       qwen3_model_size: "0.6B",
       use_flash_attention: true,
       seed: request.params.seed,
@@ -464,7 +485,7 @@ export class TTSService {
       reference_text: referenceText,
       pitch_shift: 0,
       speed: speed,
-      engine: "styletts2",
+      engine: "browser",
       qwen3_model_size: "0.6B",
       use_flash_attention: true,
       // Optional voice params with defaults

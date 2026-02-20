@@ -32,46 +32,70 @@ import { searxngService } from "@/services/searxng";
 
 // SearXNG Status Component
 function SearXNGStatus() {
-  const [status, setStatus] = useState<'checking' | 'online' | 'offline'>('checking');
+  const [status, setStatus] = useState<'checking' | 'waiting' | 'online' | 'offline'>('checking');
 
-  const checkStatus = async () => {
-    setStatus('checking');
-    const available = await searxngService.checkStatus();
+  const checkStatus = async (withRetries = false) => {
+    if (!withRetries) {
+      setStatus('checking');
+      const available = await searxngService.checkStatus();
+      setStatus(available ? 'online' : 'offline');
+      return;
+    }
+    
+    // Use retry logic for auto-detection
+    setStatus('waiting');
+    const available = await searxngService.checkStatusWithRetries(15, 2000);
     setStatus(available ? 'online' : 'offline');
   };
 
   useEffect(() => {
-    checkStatus();
-    const interval = setInterval(checkStatus, 10000);
+    // Use retries on initial check - SearXNG takes time to start
+    checkStatus(true);
+    
+    // Periodic check every 10 seconds
+    const interval = setInterval(() => {
+      if (searxngService.isAvailable()) {
+        setStatus('online');
+      } else {
+        checkStatus(false);
+      }
+    }, 10000);
     return () => clearInterval(interval);
   }, []);
 
   return (
     <div className="mt-2 p-3 bg-blue-500/10 border border-blue-500/20 rounded">
       <div className="flex items-center gap-2 mb-2">
-        {status === 'checking' && <RefreshCw className="w-4 h-4 text-blue-400 animate-spin" />}
+        {(status === 'checking' || status === 'waiting') && <RefreshCw className="w-4 h-4 text-blue-400 animate-spin" />}
         {status === 'online' && <Wifi className="w-4 h-4 text-green-400" />}
         {status === 'offline' && <WifiOff className="w-4 h-4 text-red-400" />}
         <span className="text-xs font-medium">
           {status === 'checking' && 'Checking SearXNG...'}
+          {status === 'waiting' && 'Waiting for SearXNG to start...'}
           {status === 'online' && 'SearXNG is running on localhost:8080'}
           {status === 'offline' && 'SearXNG is not running'}
         </span>
       </div>
       
+      {status === 'waiting' && (
+        <p className="text-xs text-muted-foreground">
+          SearXNG container is starting. This may take 10-30 seconds on first launch.
+        </p>
+      )}
+      
       {status === 'offline' && (
         <div className="space-y-2">
           <p className="text-xs text-muted-foreground">
-            To enable web search, start SearXNG with Docker:
+            To enable web search, ensure Docker is running and SearXNG is started:
           </p>
           <code className="block p-2 bg-black/30 rounded text-[10px] font-mono text-muted-foreground">
-            docker run -d -p 8888:8080 --name mimic-searxng searxng/searxng
+            docker run -d -p 8080:8080 --name mimic-searxng searxng/searxng
           </code>
           <Button 
             size="sm" 
             variant="outline" 
             className="w-full text-xs"
-            onClick={checkStatus}
+            onClick={() => checkStatus(true)}
           >
             <RefreshCw className="w-3 h-3 mr-1" />
             Check Again
@@ -123,6 +147,17 @@ export function SettingsPanel() {
   useEffect(() => {
     searxngService.setEnabled(settings.enable_web_search);
     console.log('[Settings] SearXNG web search enabled:', settings.enable_web_search);
+    
+    // When enabling, trigger a check with retries (container might be starting)
+    if (settings.enable_web_search) {
+      console.log('[Settings] Auto-checking SearXNG status...');
+      // Small delay to allow Docker to start container if needed
+      setTimeout(() => {
+        searxngService.checkStatusWithRetries(15, 2000).then(available => {
+          console.log('[Settings] SearXNG auto-check result:', available);
+        });
+      }, 1000);
+    }
   }, [settings.enable_web_search]);
 
   const fetchModels = async () => {
@@ -436,12 +471,11 @@ export function SettingsPanel() {
 
             {!appState.tts_backend_connected && (
               <div className="text-sm text-muted-foreground bg-muted p-3 rounded">
-                <p className="font-medium mb-1">TTS Backend Setup:</p>
-                <ol className="list-decimal list-inside space-y-1">
-                  <li>Install Python dependencies: <code className="bg-secondary px-1 rounded">pip install -r requirements.txt</code></li>
-                  <li>Start the backend: <code className="bg-secondary px-1 rounded">python backend/tts_server.py</code></li>
-                  <li>Click the test button to verify connection</li>
-                </ol>
+                <p className="font-medium mb-1">TTS Backend Not Connected</p>
+                <p className="text-xs">
+                  The Python TTS backend will start automatically. If it doesn't connect within 30 seconds, 
+                  please check that Python 3.10-3.12 is installed and in your PATH.
+                </p>
               </div>
             )}
           </div>
@@ -528,8 +562,8 @@ export function SettingsPanel() {
                 TTS Engine
               </Label>
               <Select 
-                value={settings.tts_engine || "styletts2"} 
-                onValueChange={(value: "styletts2" | "qwen3" | "off") => updateSettings({ tts_engine: value })}
+                value={settings.tts_engine || "browser"} 
+                onValueChange={(value: "off" | "browser" | "qwen3") => updateSettings({ tts_engine: value })}
               >
                 <SelectTrigger>
                   <SelectValue />
@@ -541,10 +575,10 @@ export function SettingsPanel() {
                       <span className="text-xs text-muted-foreground">Text only, no voice output</span>
                     </div>
                   </SelectItem>
-                  <SelectItem value="styletts2">
+                  <SelectItem value="browser">
                     <div className="flex flex-col items-start">
-                      <span>StyleTTS2</span>
-                      <span className="text-xs text-muted-foreground">Fast, lightweight, works without reference</span>
+                      <span>Browser TTS</span>
+                      <span className="text-xs text-muted-foreground">System voice, no setup required</span>
                     </div>
                   </SelectItem>
                   <SelectItem value="qwen3">
@@ -738,9 +772,7 @@ export function SettingsPanel() {
                 <p className="text-sm text-muted-foreground">
                   Automatically listen for wake word
                 </p>
-                <p className="text-xs text-amber-400 mt-1">
-                  Note: Requires Chrome/Edge. Brave blocks speech recognition.
-                </p>
+
               </div>
               <Switch
                 checked={settings.auto_listen}
@@ -846,10 +878,10 @@ export function SettingsPanel() {
                 <div className="text-xs text-red-400 bg-red-500/10 p-2 rounded">
                   <p className="font-medium mb-1">No audio detected. Try these fixes:</p>
                   <ul className="list-disc list-inside space-y-1">
-                    <li><strong>VoiceMeeter users:</strong> Set Blue Snowball as Input Device in VoiceMeeter, OR disable VoiceMeeter temporarily</li>
-                    <li>Check Windows Sound Settings → Recording → Blue Snowball set as Default</li>
-                    <li>Check the mic isn't muted (physical mute switch on Blue Snowball)</li>
-                    <li>Try selecting Blue Snowball directly from the dropdown above</li>
+                    <li><strong>Virtual Audio Software:</strong> If using VoiceMeeter or similar, ensure your physical mic is set as the input device</li>
+                    <li>Check Windows Sound Settings → Recording → your microphone is set as Default</li>
+                    <li>Check the mic isn't muted (physical mute switch)</li>
+                    <li>Try selecting your microphone directly from the dropdown above</li>
                     <li>Close other apps that might be using the microphone</li>
                   </ul>
                 </div>

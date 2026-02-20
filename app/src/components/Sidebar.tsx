@@ -30,7 +30,7 @@ export function Sidebar({ activeView, onViewChange }: SidebarProps) {
       {/* Logo */}
       <div className="mb-8">
         <motion.div 
-          className="w-12 h-12 rounded-xl bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center overflow-hidden"
+          className="w-12 h-12 rounded-xl bg-gradient-to-br from-[#ff00ff] to-[#00ffff] flex items-center justify-center overflow-hidden shadow-[0_0_15px_rgba(255,0,255,0.5)]"
           whileHover={{ scale: 1.05 }}
           whileTap={{ scale: 0.95 }}
         >
@@ -51,8 +51,8 @@ export function Sidebar({ activeView, onViewChange }: SidebarProps) {
               className={cn(
                 "relative w-12 h-12 rounded-xl flex items-center justify-center transition-all duration-200 group",
                 isActive 
-                  ? "bg-primary text-primary-foreground shadow-lg shadow-primary/25" 
-                  : "text-muted-foreground hover:text-foreground hover:bg-accent"
+                  ? "bg-[#ff00ff] text-white shadow-[0_0_15px_rgba(255,0,255,0.6)]" 
+                  : "text-muted-foreground hover:text-[#00ffff] hover:bg-[#ff00ff]/10"
               )}
             >
               <Icon className="w-5 h-5" />
@@ -66,7 +66,7 @@ export function Sidebar({ activeView, onViewChange }: SidebarProps) {
               {isActive && (
                 <motion.div
                   layoutId="activeNav"
-                  className="absolute inset-0 rounded-xl bg-primary -z-10"
+                  className="absolute inset-0 rounded-xl bg-[#ff00ff] -z-10 shadow-[0_0_15px_rgba(255,0,255,0.6)]"
                   transition={{ type: "spring", bounce: 0.2, duration: 0.6 }}
                 />
               )}

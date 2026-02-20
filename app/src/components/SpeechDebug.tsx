@@ -248,19 +248,15 @@ export function SpeechDebug({ onClose }: SpeechDebugProps) {
         <div className="flex justify-between">
           <span className="text-muted-foreground">Mic Device:</span>
           <span className="text-xs truncate max-w-[150px]" title={settings.microphone_device || "System Default"}>
-            {settings.microphone_device ? "Blue Snowball" : "System Default"}
+            {settings.microphone_device ? "Custom Device" : "System Default"}
           </span>
         </div>
         
         <div className="mt-2 p-2 bg-amber-500/10 border border-amber-500/20 rounded text-[10px]">
-          <strong className="text-amber-400">VoiceMeeter Setup:</strong>
-          <ol className="list-decimal list-inside mt-1 space-y-1">
-            <li>In VoiceMeeter, click <strong>"Select Input Device"</strong> on Hardware Input 1</li>
-            <li>Select <strong>Blue Snowball</strong></li>
-            <li>In Settings → select <strong>"VoiceMeeter Out B1"</strong> as microphone</li>
-          </ol>
-          <p className="mt-1 text-amber-300">
-            OR: Select Blue Snowball directly to bypass VoiceMeeter
+          <strong className="text-amber-400">Virtual Audio Software:</strong>
+          <p className="mt-1">
+            If using VoiceMeeter or similar software, ensure your physical microphone 
+            is selected as the input device in the virtual audio settings.
           </p>
         </div>
         

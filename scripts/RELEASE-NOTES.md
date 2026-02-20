@@ -53,7 +53,7 @@ On first run, Mimic AI will:
 ## ✨ Features
 
 - 🤖 **Local AI Inference** - Runs entirely on your machine using Ollama
-- 🗣️ **Voice Synthesis** - Dual TTS engine support (StyleTTS2 & Qwen3-TTS)
+- 🗣️ **Voice Synthesis** - Browser TTS (no setup) & Qwen3-TTS (AI voice cloning)
 - 🧠 **Persistent Memory** - Conversation memory with per-persona context
 - 🔍 **Web Search** - Privacy-focused SearXNG integration
 - 🎙️ **Wake Word Detection** - Hands-free activation
@@ -115,7 +115,7 @@ SHA256: (to be added after build)
 
 - Built with Tauri, React, and Rust
 - Uses Ollama for local LLM inference
-- Voice synthesis powered by StyleTTS2 and Qwen3-TTS
+- Voice synthesis powered by Browser TTS and Qwen3-TTS
 
 ## 📄 License
 
