@@ -4,6 +4,8 @@
  * Used for previewing voice tuning parameters without regeneration
  */
 
+import { audioAnalyzer } from "./audioAnalyzer";
+
 export interface AudioEffectParams {
   // Basic
   pitchShift: number;      // -1 to 1 (semitones)
@@ -150,6 +152,11 @@ class AudioEffectsService {
 
     const context = new (window.AudioContext || (window as any).webkitAudioContext)();
     
+    // Resume context if suspended (browsers block audio until user interaction)
+    if (context.state === 'suspended') {
+      await context.resume();
+    }
+    
     // Decode audio
     let buffer: AudioBuffer;
     try {
@@ -212,7 +219,15 @@ class AudioEffectsService {
       lastNode.connect(gainNode);
     }
 
+    // Create and connect analyzer for avatar mouth animation
+    const analyser = context.createAnalyser();
+    analyser.fftSize = 64;
+    analyser.smoothingTimeConstant = 0.8;
+    gainNode.connect(analyser);
     gainNode.connect(context.destination);
+    
+    // Connect to global audio analyzer for avatar
+    audioAnalyzer.connectNode(analyser);
 
     // Store playback state
     this.currentPlayback = {

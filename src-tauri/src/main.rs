@@ -21,8 +21,13 @@ const DETACHED_PROCESS: u32 = 0x00000008;
 
 mod setup;
 mod dependency_manager;
+mod vrm_library;
+mod license_manager;
+mod default_assets;
 use setup::{check_setup_status, install_python_deps, find_python_executable, install_dependencies_visible};
 use dependency_manager::{check_dependencies, install_dependencies_command, get_python_path};
+use license_manager::{get_machine_id, verify_license_key};
+use default_assets::{check_and_initialize_defaults, get_default_assets_info};
 
 // Helper to write startup logs
 fn log_startup(message: &str) {
@@ -237,11 +242,28 @@ fn main() {
                 let state: State<BackendState> = app_handle.state();
                 *state.port.lock().unwrap() = 8000;
             }
+            
+            // Initialize default assets (VRM + voice) on first launch
+            std::thread::spawn(move || {
+                // Small delay to let window show first
+                std::thread::sleep(std::time::Duration::from_millis(500));
+                
+                match default_assets::initialize_default_assets(&app_handle) {
+                    Ok(info) => {
+                        log_startup(&format!("[DefaultAssets] Initialized: VRM={}, Voice={}", 
+                            info.vrm.id, info.voice.persona_id));
+                    }
+                    Err(e) => {
+                        // Don't fail if assets can't be initialized - app can still work
+                        log_startup(&format!("[DefaultAssets] Warning: {}", e));
+                    }
+                }
+            });
 
             Ok(())
         })
         .on_window_event(|event| match event.event() {
-            tauri::WindowEvent::CloseRequested { api, .. } => {
+            tauri::WindowEvent::CloseRequested { api: _, .. } => {
                 // Kill backends before closing
                 log_startup("[*] Shutting down backends...");
                 
@@ -270,7 +292,9 @@ fn main() {
             }
             _ => {}
         })
+
         .invoke_handler(tauri::generate_handler![
+            save_voice_to_file,
             save_voice_to_file,
             load_voice_from_file,
             delete_voice_file,
@@ -278,11 +302,20 @@ fn main() {
             get_backend_port,
             get_app_data_path,
             show_in_folder,
+            vrm_library::list_vrm_library,
+            vrm_library::save_vrm_to_library,
+            vrm_library::delete_vrm_from_library,
+            vrm_library::rename_vrm_in_library,
+            vrm_library::get_vrm_file_path,
             check_setup_status,
             install_python_deps,
             check_dependencies,
             install_dependencies_command,
             get_python_path,
+            get_machine_id,
+            verify_license_key,
+            check_and_initialize_defaults,
+            get_default_assets_info,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
@@ -345,24 +378,31 @@ fn start_python_backend(app_data_dir: &PathBuf) -> u16 {
     log_startup("[*] Python found, looking for backend...");
     
     // Find the backend script - try multiple locations
-    // 1. Development: current directory (for running from source)
-    // 2. Packaged: resources folder bundled with the app
-    let dev_path = std::env::current_dir().unwrap().join("app").join("backend").join("tts_server_unified.py");
-    
-    // For packaged app, get exe directory first
     let exe_binding = std::env::current_exe().unwrap();
     let exe_dir = exe_binding.parent().unwrap();
+    let current_dir = std::env::current_dir().unwrap();
     
-    // Tauri bundles resources at resources/ (not resources/app/)
-    let packaged_path = exe_dir.join("resources").join("backend").join("tts_server_unified.py");
+    // Try multiple paths in order of likelihood
+    let possible_paths = vec![
+        // Packaged: resources folder next to exe
+        exe_dir.join("resources").join("backend").join("tts_server_unified.py"),
+        // Dev: running from project root
+        current_dir.join("app").join("backend").join("tts_server_unified.py"),
+        // Dev: running from src-tauri directory
+        current_dir.join("..").join("app").join("backend").join("tts_server_unified.py"),
+        // Dev: running from src-tauri/target/release
+        exe_dir.join("..").join("..").join("..").join("app").join("backend").join("tts_server_unified.py"),
+        // Dev: resources in src-tauri
+        current_dir.join("resources").join("backend").join("tts_server_unified.py"),
+        // Dev: resources next to exe (for src-tauri/target/release)
+        exe_dir.join("..").join("..").join("resources").join("backend").join("tts_server_unified.py"),
+    ];
     
-    println!("createhecking paths:");
-    println!("      - Dev: {:?}", dev_path);
-    println!("      - Packaged: {:?}", packaged_path);
+    println!("Checking paths:");
+    for p in &possible_paths {
+        println!("      - {:?} (exists: {})", p, p.exists());
+    }
 
-    // Check both dev and packaged paths
-    let possible_paths = vec![dev_path, packaged_path];
-    
     // Find existing path or skip backend startup
     let backend_script = match possible_paths.iter().find(|p| p.exists()) {
         Some(p) => {
@@ -1133,20 +1173,41 @@ fn start_python_backend_blocking(app_data_dir: &PathBuf) {
         }
     };
     
-    // Find the backend script
-    let dev_path = std::env::current_dir().unwrap().join("app").join("backend").join("tts_server_unified.py");
+    // Find the backend script - check multiple possible locations
     let exe_binding = std::env::current_exe().unwrap();
     let exe_dir = exe_binding.parent().unwrap();
-    let packaged_path = exe_dir.join("resources").join("backend").join("tts_server_unified.py");
+    let current_dir = std::env::current_dir().unwrap();
     
-    let backend_script = if dev_path.exists() {
-        dev_path
-    } else if packaged_path.exists() {
-        packaged_path
-    } else {
-        eprintln!("    Could not find tts_server_unified.py");
-        log_startup("    Could not find tts_server_unified.py");
-        return;
+    // Try multiple paths in order of likelihood
+    let possible_paths = vec![
+        // Packaged: resources folder next to exe
+        exe_dir.join("resources").join("backend").join("tts_server_unified.py"),
+        // Dev: running from project root
+        current_dir.join("app").join("backend").join("tts_server_unified.py"),
+        // Dev: running from src-tauri directory
+        current_dir.join("..").join("app").join("backend").join("tts_server_unified.py"),
+        // Dev: running from src-tauri/target/release
+        exe_dir.join("..").join("..").join("..").join("app").join("backend").join("tts_server_unified.py"),
+        // Dev: resources in src-tauri
+        current_dir.join("resources").join("backend").join("tts_server_unified.py"),
+        // Dev: resources next to exe (for src-tauri/target/release)
+        exe_dir.join("..").join("..").join("resources").join("backend").join("tts_server_unified.py"),
+    ];
+    
+    let backend_script = match possible_paths.iter().find(|p| p.exists()) {
+        Some(p) => {
+            log_startup(&format!("    Found tts_server_unified.py at: {:?}", p));
+            p.clone()
+        }
+        None => {
+            eprintln!("    Could not find tts_server_unified.py in any of:");
+            log_startup("    Could not find tts_server_unified.py in any of:");
+            for p in &possible_paths {
+                eprintln!("      - {:?}", p);
+                log_startup(&format!("      - {:?}", p));
+            }
+            return;
+        }
     };
     
     let backend_dir = backend_script.parent().unwrap().to_path_buf();

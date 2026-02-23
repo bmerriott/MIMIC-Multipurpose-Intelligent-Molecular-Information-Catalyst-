@@ -37,8 +37,8 @@ export function WakeWordListener() {
   const processCommandRef = useRef<((text: string) => Promise<void>) | null>(null);
   
   // Silence detection delay - wait this long after speech stops before processing (ms)
-  // Increased to 3.5s to allow natural pauses during speech without cutting off
-  const SILENCE_DELAY = 3500;
+  // Increased to 5s to allow natural pauses during longer speech without cutting off
+  const SILENCE_DELAY = 5000;
   
   // Note: Old voice enrollment system removed - using unified createVoice API
   
@@ -866,7 +866,7 @@ export function WakeWordListener() {
             const responseWords = currentPersonaRef.current?.response_words || ["Yes?", "I'm listening"];
             const randomResponse = responseWords[Math.floor(Math.random() * responseWords.length)];
             
-            toast.info(`${currentPersonaRef.current?.name || "Mimic"}: ${randomResponse}`, { description: "Speak your command", duration: 8000 });
+            toast.info(`${currentPersonaRef.current?.name || "Mimic"}: ${randomResponse}`, { description: "Speak your command", duration: 10000 });
             
             setTimeout(() => {
               if (isWaitingForCommandRef.current) {
@@ -884,7 +884,7 @@ export function WakeWordListener() {
                 isProcessingRef.current = false;
                 if (silenceTimeoutRef.current) { clearTimeout(silenceTimeoutRef.current); silenceTimeoutRef.current = null; }
               }
-            }, 8000);
+            }, 10000);
           }
         }
       }
@@ -1032,7 +1032,7 @@ export function WakeWordListener() {
             const randomResponse = responseWords[Math.floor(Math.random() * responseWords.length)];
             toast.info(`${currentPersonaRef.current?.name || "Mimic"}: ${randomResponse}`, { 
               description: "Speak your command", 
-              duration: 8000 
+              duration: 10000 
             });
             
             // Speak the response
@@ -1053,7 +1053,7 @@ export function WakeWordListener() {
                 commandBufferRef.current = "";
                 if (silenceTimeoutRef.current) { clearTimeout(silenceTimeoutRef.current); silenceTimeoutRef.current = null; }
               }
-            }, 8000);
+            }, 10000);
           }
           return;
         }

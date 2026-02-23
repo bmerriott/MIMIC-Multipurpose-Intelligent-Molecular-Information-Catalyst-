@@ -51,6 +51,17 @@ releases/
 
 # Backend source (copied to resources during build)
 # Note: app/backend/ is the source, src-tauri/resources/backend/ is the bundled copy
+src-tauri/resources/backend/*
+!src-tauri/resources/backend/.gitkeep
+!src-tauri/resources/backend/README.md
+
+# Python wheels (should be downloaded during setup, not stored in git)
+*.whl
+
+# Build artifacts within target (resources are copied during build)
+src-tauri/target/**/resources/
+src-tauri/target/**/vrma/
+src-tauri/target/**/default_persona/
 
 # --------------------------------------------
 # Environment & Secrets
@@ -148,10 +159,29 @@ backend_data/
 # --------------------------------------------
 # Large Binary Files (if not needed in repo)
 # --------------------------------------------
-# Uncomment if you don't want to track large model files
-# *.bin
-# *.onnx
-# *.pt
-# *.pth
-# *.ckpt
-# *.safetensors
+# Model files (should be downloaded during setup)
+*.bin
+*.onnx
+*.pt
+*.pth
+*.ckpt
+*.safetensors
+
+# Keep example files even if they match patterns above
+!.env.example
+
+# --------------------------------------------
+# Development/Planning Documents (not for GitHub)
+# --------------------------------------------
+GITHUB_RELEASE_CHECKLIST.md
+RELEASE_SUMMARY_*.md
+PRIVATE_BUILD.md
+
+# Keep on GitHub: README.md, QUICKSTART.md, CHANGELOG.md, ATTRIBUTION.md
+# Keep: VERCEL_PATREON_SETUP.md (for contributors implementing OAuth)
+
+# --------------------------------------------
+# Default Persona Assets (bundled during build)
+# Source files in Default_Persona/, bundled copy in app/public/
+# --------------------------------------------
+# Default_Persona/  (source assets - optional in repo)

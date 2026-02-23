@@ -25,7 +25,8 @@ import {
   Shield,
   FileAudio
 } from "lucide-react";
-import { useStore, type VoiceTuningParams, defaultVoiceTuning } from "@/store";
+import { useStore, defaultVoiceTuning } from "@/store";
+import type { VoiceTuningParams } from "@/types";
 import { Button } from "./ui/button";
 import { Input } from "./ui/input";
 import { Label } from "./ui/label";

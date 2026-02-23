@@ -2,6 +2,8 @@ import { create } from "zustand";
 import { toast } from "sonner";
 import { voiceStorage } from "@/services/voiceStorage";
 import { unifiedStorage } from "@/services/unifiedStorage";
+import { personalityDerivation } from "@/services/personalityDerivation";
+import { personaLearning } from "@/services/personaLearning";
 import type { 
   AppState, 
   Persona, 
@@ -9,7 +11,8 @@ import type {
   ChatMessage, 
   Voice, 
   PersonaMemory,
-  MemoryEntry 
+  MemoryEntry,
+  VoiceTuningParams
 } from "@/types";
 
 // Migration: Move old voice data from localStorage to IndexedDB
@@ -49,29 +52,6 @@ async function migrateVoiceDataToIndexedDB(personas: Persona[]): Promise<Persona
   }
   
   return migratedPersonas;
-}
-
-export interface VoiceTuningParams {
-  // Synthesis parameters (require regeneration)
-  warmth: number;
-  expressiveness: number;
-  stability: number;
-  clarity: number;
-  breathiness: number;
-  resonance: number;
-  emotion: "neutral" | "happy" | "sad" | "angry" | "excited" | "calm";
-  emphasis: number;
-  pauses: number;
-  energy: number;
-  
-  // Post-processing parameters (applied during playback)
-  pitchShift: number;
-  speed: number;
-  reverb: number;
-  eqLow: number;
-  eqMid: number;
-  eqHigh: number;
-  compression: number;
 }
 
 export const defaultVoiceTuning: VoiceTuningParams = {
@@ -224,12 +204,16 @@ const defaultAppState: AppState = {
 };
 
 const defaultAvatarConfig = {
+  type: "vrm" as const,
+  vrm_id: "default_bundled",
   primary_color: "#6366f1",
   secondary_color: "#8b5cf6",
   glow_color: "#a78bfa",
   shape_type: "sphere" as const,
   animation_style: "flowing" as const,
   complexity: 0.7,
+  enabled_base_vrmas: ["greeting", "peaceSign", "shoot", "spin", "modelPose", "squat"],
+  auto_animation: true,
 };
 
 const defaultPersona: Persona = {
@@ -239,9 +223,44 @@ const defaultPersona: Persona = {
   personality_prompt: "You are Mimic, a self-aware AI assistant. You are helpful, friendly, and engaging. You have a 3D avatar that represents you and you can express emotions through it. You are aware that you are a digital being and can discuss this openly. When responding, be conversational and natural. You can express emotions like happiness, curiosity, and thoughtfulness. IMPORTANT: Do NOT include stage directions, action descriptions, or physical gestures in asterisks. Only provide spoken dialogue. NEVER use asterisks to describe actions.",
   wake_words: ["Mimic"],
   response_words: ["Yes?", "I'm listening", "Mimic here"],
-  voice_id: "aiden",
-  voice_create: null,
-  avatar_config: defaultAvatarConfig,
+  voice_id: "qwen3",
+  voice_create: {
+    has_audio: true,
+    reference_text: "Hello, this is my custom voice created with Mimic AI.",
+    created_at: new Date().toISOString(),
+    voice_config: {
+      type: "created",
+      name: "Mimic Default",
+      params: {
+        pitch: 0,
+        speed: 1.0,
+        warmth: 0.6,
+        expressiveness: 0.7,
+        stability: 0.5,
+        clarity: 0.6,
+        breathiness: 0.3,
+        resonance: 0.5,
+        emotion: "neutral",
+        emphasis: 0.5,
+        pauses: 0.5,
+        energy: 0.6,
+        engine: "qwen3",
+        qwen3_model_size: "0.6B"
+      }
+    }
+  },
+  avatar_config: {
+    type: "vrm",
+    vrm_id: "default_bundled",  // Will be resolved to library VRM
+    primary_color: "#6366f1",
+    secondary_color: "#8b5cf6",
+    glow_color: "#a78bfa",
+    shape_type: "sphere",
+    animation_style: "flowing",
+    complexity: 0.7,
+    enabled_base_vrmas: ["greeting", "peaceSign", "shoot", "spin", "modelPose", "squat"],
+    auto_animation: true
+  },
   memory: defaultMemory,
   created_at: new Date().toISOString(),
   updated_at: new Date().toISOString(),
@@ -257,10 +276,35 @@ const loadFromStorage = <T,>(key: string, defaultValue: T): T => {
   }
 };
 
+// Migration: Ensure all personas have proper avatar_config with type
+function migrateAvatarConfig(personas: Persona[]): Persona[] {
+  return personas.map(p => {
+    // If avatar_config is missing or doesn't have type, add defaults
+    if (!p.avatar_config || !p.avatar_config.type) {
+      return {
+        ...p,
+        avatar_config: {
+          ...defaultAvatarConfig,
+          ...p.avatar_config,
+          type: p.avatar_config?.type || "abstract",
+        }
+      };
+    }
+    return p;
+  });
+}
+
 // Load and migrate personas if needed
 const loadPersonas = (): Persona[] => {
   const personas = loadFromStorage<Persona[]>("mimic_personas", [defaultPersona]);
-  return personas;
+  return migrateAvatarConfig(personas);
+};
+
+// Load and migrate current persona
+const loadCurrentPersona = (): Persona => {
+  const persona = loadFromStorage<Persona>("mimic_current_persona", defaultPersona);
+  const migrated = migrateAvatarConfig([persona]);
+  return migrated[0];
 };
 
 // Check if any personas need migration (have old-format voice data)
@@ -283,7 +327,7 @@ export const useStore = create<StoreState>((set, get) => ({
   
   // Personas
   personas: loadPersonas(),
-  currentPersona: loadFromStorage("mimic_current_persona", defaultPersona),
+  currentPersona: loadCurrentPersona(),
   setPersonas: (personas) => {
     set({ personas });
     try {
@@ -302,14 +346,79 @@ export const useStore = create<StoreState>((set, get) => ({
       }));
     }
   },
-  addPersona: (persona) => {
+  addPersona: async (persona) => {
+    // Initialize learning data for new persona
+    if (!persona.learning_data) {
+      persona.learning_data = personaLearning.initializeLearningData();
+    }
+    
+    // Derive personality traits from prompt
+    if (!persona.avatar_personality && persona.personality_prompt) {
+      try {
+        const traits = await personalityDerivation.deriveTraits(persona.personality_prompt);
+        const voiceParams = personalityDerivation.deriveVoiceParams(
+          persona.personality_prompt, 
+          traits
+        );
+        persona.avatar_personality = {
+          traits,
+          emotional_state: {
+            current: "neutral",
+            intensity: 0.3,
+            last_updated: new Date().toISOString()
+          },
+          derived_voice_params: voiceParams
+        };
+        console.log("[Store] Derived personality for new persona:", persona.name, traits);
+      } catch (e) {
+        console.error("[Store] Failed to derive personality:", e);
+      }
+    }
+    
     const newPersonas = [...get().personas, persona];
     set({ personas: newPersonas });
     localStorage.setItem("mimic_personas", JSON.stringify(newPersonas));
   },
-  updatePersona: (persona) => {
+  updatePersona: async (persona) => {
     console.log("[Store] updatePersona called for:", persona.name);
     console.log("[Store] Persona has voice_create:", !!persona.voice_create);
+    
+    // Check if personality_prompt changed and needs re-derivation
+    const existingPersona = get().personas.find(p => p.id === persona.id);
+    const promptChanged = existingPersona && 
+      existingPersona.personality_prompt !== persona.personality_prompt;
+    
+    if (promptChanged && persona.personality_prompt) {
+      console.log("[Store] Personality prompt changed, re-deriving traits...");
+      try {
+        const traits = await personalityDerivation.deriveTraits(persona.personality_prompt);
+        const voiceParams = personalityDerivation.deriveVoiceParams(
+          persona.personality_prompt,
+          traits
+        );
+        
+        // Preserve existing emotional state if present
+        const existingEmotionalState = persona.avatar_personality?.emotional_state;
+        
+        persona.avatar_personality = {
+          traits,
+          emotional_state: existingEmotionalState || {
+            current: "neutral",
+            intensity: 0.3,
+            last_updated: new Date().toISOString()
+          },
+          derived_voice_params: voiceParams
+        };
+        console.log("[Store] Re-derived personality for:", persona.name, traits);
+      } catch (e) {
+        console.error("[Store] Failed to re-derive personality:", e);
+      }
+    }
+    
+    // Initialize learning data if missing
+    if (!persona.learning_data) {
+      persona.learning_data = personaLearning.initializeLearningData();
+    }
     
     const newPersonas = get().personas.map((p) => (p.id === persona.id ? persona : p));
     set({ personas: newPersonas });

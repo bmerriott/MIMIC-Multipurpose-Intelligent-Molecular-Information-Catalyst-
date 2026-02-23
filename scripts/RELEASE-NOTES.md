@@ -53,7 +53,7 @@ On first run, Mimic AI will:
 ## ✨ Features
 
 - 🤖 **Local AI Inference** - Runs entirely on your machine using Ollama
-- 🗣️ **Voice Synthesis** - Browser TTS (no setup) & Qwen3-TTS (AI voice cloning)
+- 🗣️ **Voice Synthesis** - Browser TTS (no setup) & Qwen3-TTS (AI voice creation)
 - 🧠 **Persistent Memory** - Conversation memory with per-persona context
 - 🔍 **Web Search** - Privacy-focused SearXNG integration
 - 🎙️ **Wake Word Detection** - Hands-free activation
@@ -103,7 +103,7 @@ SearXNG connection is checked directly (bypassing the Python backend), so web se
 - **OS**: Windows 10/11 (64-bit)
 - **RAM**: 8GB minimum, 16GB recommended
 - **Storage**: 5GB free space
-- **GPU**: Optional but recommended for faster inference
+- **GPU**: Optional but recommended for faster inference/ Necessary for Qwen3 voice creation
 
 ## 📝 Checksums
 

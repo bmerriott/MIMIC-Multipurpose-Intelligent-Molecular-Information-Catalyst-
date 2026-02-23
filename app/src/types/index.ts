@@ -26,64 +26,154 @@ export interface PersonaMemory {
   last_summarized: string;
 }
 
+// Avatar personality traits derived from personality_prompt
+export interface AvatarPersonalityTraits {
+  energy_level: number;      // 0-1, affects animation speed
+  playfulness: number;       // 0-1, affects emote frequency  
+  expressiveness: number;    // 0-1, affects lip sync intensity
+  curiosity: number;         // 0-1, affects proactive behavior
+  empathy: number;           // 0-1, affects response tone
+  formality: number;         // 0-1, affects language style
+}
+
+// Emotional state tracking
+export interface EmotionalState {
+  current: "neutral" | "happy" | "excited" | "curious" | "thoughtful" | "surprised" | "empathetic" | "playful" | "sad" | "concerned";
+  intensity: number; // 0-1
+  last_updated: string;
+  trigger?: string; // What caused this emotion
+}
+
+// Learning data for persona development
+export interface PersonaLearningData {
+  // User interaction patterns
+  interaction_count: number;
+  total_conversation_time: number; // minutes
+  favorite_topics: string[];
+  user_preferences: Record<string, any>;
+  
+  // Animation preferences (learned over time)
+  animation_preferences: {
+    favorites: string[];
+    avoided: string[];
+    last_played: Record<string, string>; // animation name -> timestamp
+  };
+  
+  // Emotional history
+  emotional_history: {
+    timestamp: string;
+    emotion: string;
+    intensity: number;
+  }[];
+  
+  // Relationship milestones
+  milestones: {
+    first_conversation: string;
+    conversations_count: number;
+    inside_jokes: string[];
+  };
+}
+
+// Procedural vocalizations (Qwen TTS only)
+export interface ProceduralVocalization {
+  id: string;
+  type: "giggle" | "sigh" | "hum" | "gasp" | "yawn" | "laugh" | "hmm";
+  audio_data: string; // base64
+  created_at: string;
+  usage_count: number;
+}
+
+// Extended persona with avatar integration
 export interface Persona {
   id: string;
   name: string;
   description: string;
   personality_prompt: string;
-  wake_words: string[]; // Multiple wake words (e.g., ["Jarvis", "Hey Jarvis"])
-  response_words: string[]; // Multiple response words (e.g., ["Yes?", "I'm here"])
+  wake_words: string[];
+  response_words: string[];
   voice_id: string;
   voice_create?: {
-    audio_data?: string; // Base64 encoded audio sample for preview
-    has_audio?: boolean; // Flag indicating voice is configured
-    reference_text?: string; // Sample text used for the voice
+    audio_data?: string;
+    has_audio?: boolean;
+    reference_text?: string;
     created_at: string;
     voice_config?: {
-      type: "synthetic" | "created"; // Type of voice creation
+      type: "synthetic" | "created";
       params?: {
-        // Basic tuning
         pitch: number;
         speed: number;
-        // Voice characteristics
         warmth?: number;
         expressiveness?: number;
         stability?: number;
         clarity?: number;
         breathiness?: number;
         resonance?: number;
-        // Speech characteristics
         emotion?: "neutral" | "happy" | "sad" | "angry" | "excited" | "calm";
         emphasis?: number;
         pauses?: number;
         energy?: number;
-        // Audio effects
         reverb?: number;
         eq_low?: number;
         eq_mid?: number;
         eq_high?: number;
         compression?: number;
-        // Engine info
         engine?: "off" | "browser" | "qwen3";
         qwen3_model_size?: "0.6B" | "1.7B";
         extraction_model_size?: "0.6B" | "1.7B";
         use_voice_profile?: boolean;
-        // Legacy
         gender?: "neutral" | "masculine" | "feminine";
         age?: "young" | "adult" | "mature";
-        seed?: number; // Random seed for reproducibility
+        seed?: number;
       };
       name?: string;
     };
   } | null;
   avatar_config: AvatarConfig;
-  avatar_description?: string; // LLM-generated avatar description
+  avatar_description?: string;
   memory: PersonaMemory;
+  
+  // NEW: Avatar personality integration
+  avatar_personality?: {
+    traits: AvatarPersonalityTraits;
+    emotional_state: EmotionalState;
+    derived_voice_params?: Partial<VoiceTuningParams>;
+  };
+  
+  // NEW: Learning data
+  learning_data?: PersonaLearningData;
+  
+  // NEW: Procedural vocalizations (Qwen TTS only, limited storage)
+  procedural_vocalizations?: ProceduralVocalization[];
+  
   created_at: string;
   updated_at: string;
 }
 
+// Voice tuning parameters (moved from store for wider use)
+export interface VoiceTuningParams {
+  warmth: number;
+  expressiveness: number;
+  stability: number;
+  clarity: number;
+  breathiness: number;
+  resonance: number;
+  emotion: "neutral" | "happy" | "sad" | "angry" | "excited" | "calm";
+  emphasis: number;
+  pauses: number;
+  energy: number;
+  pitchShift: number;
+  speed: number;
+  reverb: number;
+  eqLow: number;
+  eqMid: number;
+  eqHigh: number;
+  compression: number;
+}
+
+export type AvatarType = "abstract" | "vrm" | "gltf" | "glb";
+
 export interface AvatarConfig {
+  type: AvatarType;
   primary_color: string;
   secondary_color: string;
   glow_color: string;
@@ -91,6 +181,24 @@ export interface AvatarConfig {
   animation_style: "flowing" | "pulsing" | "wave" | "static" | "llm_generated";
   complexity: number;
   llm_prompt?: string; // The prompt used to generate the avatar
+  // For 3D model avatars (VRM/GLTF)
+  model_url?: string;
+  // For VRM library selection
+  vrm_id?: string; // ID of the selected VRM in the local library
+  // For generic 3D model library selection
+  model_id?: string; // ID of the selected model (GLB/GLTF) in the local library
+  // For VRM avatars
+  vrm_config?: {
+    blinkInterval?: number;
+    lookAtTarget?: boolean;
+    lipSyncEnabled?: boolean;
+  };
+  // VRMA animation paths (persona-specific animations override base)
+  vrma_paths?: Record<string, string>; // animation name -> file path
+  // Enabled base VRMA animations for this persona
+  enabled_base_vrmas?: string[]; // e.g., ['greeting', 'peaceSign', 'shoot']
+  // Auto animation enabled
+  auto_animation?: boolean;
 }
 
 export interface AppSettings {

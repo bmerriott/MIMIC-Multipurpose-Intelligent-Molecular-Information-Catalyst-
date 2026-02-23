@@ -21,9 +21,11 @@ import { GlobalAudioPlayer } from "./components/GlobalAudioPlayer";
 import { SetupWizard } from "./components/SetupWizard";
 import { TOS } from "./legal/TOS";
 import { PrivacyPolicy } from "./legal/PrivacyPolicy";
+import { SubscriptionDialog, useSubscriptionCheck } from "@/components/SubscriptionDialog";
 import { ollamaService } from "@/services/ollama";
 import { ttsService } from "@/services/tts";
 import { unifiedStorage } from "@/services/unifiedStorage";
+import { initializeDefaultAssets } from "@/services/defaultAssets";
 
 // First-launch consent state
 interface FirstLaunchConsent {
@@ -59,6 +61,9 @@ function App() {
     updateSettings,
     setAvailableModels,
   } = useStore();
+
+  // Subscription check
+  const { showDialog, setShowDialog } = useSubscriptionCheck();
 
   const allConsentsGiven = firstLaunchConsent.aiDisclosure && 
                            firstLaunchConsent.voiceConsent && 
@@ -106,6 +111,30 @@ function App() {
     };
     
     checkSetup();
+  }, []);
+
+  // Initialize default assets (VRM + voice) on app startup
+  useEffect(() => {
+    const initAssets = async () => {
+      if (!unifiedStorage.isTauri()) return;
+      
+      try {
+        const info = await initializeDefaultAssets();
+        if (info) {
+          console.log("[App] Default assets initialized:", info);
+          toast.success("Default persona loaded", {
+            description: "Mimic avatar and voice are ready to use!",
+            duration: 3000,
+          });
+        }
+      } catch (error) {
+        console.error("[App] Failed to initialize default assets:", error);
+      }
+    };
+    
+    // Delay slightly to let app fully load
+    const timer = setTimeout(initAssets, 2000);
+    return () => clearTimeout(timer);
   }, []);
 
   const handleAcceptTerms = () => {
@@ -555,6 +584,13 @@ function App() {
           )}
         </DialogContent>
       </Dialog>
+
+      {/* Subscription Dialog */}
+      <SubscriptionDialog 
+        open={showDialog} 
+        onOpenChange={setShowDialog}
+        onContinue={() => {}}
+      />
     </div>
   );
 }

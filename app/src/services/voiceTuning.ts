@@ -7,7 +7,7 @@
  * - Post-processing params: Applied during playback (pitch, speed, reverb, EQ, compression)
  */
 
-import type { VoiceTuningParams } from "@/store";
+import type { VoiceTuningParams } from "@/types";
 
 // Params that require voice regeneration
 export const SYNTHESIS_PARAMS: (keyof VoiceTuningParams)[] = [

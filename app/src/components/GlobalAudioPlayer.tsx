@@ -1,5 +1,6 @@
 import { useEffect, useRef } from "react";
 import { useStore } from "@/store";
+import { audioAnalyzer } from "@/services/audioAnalyzer";
 
 /**
  * Global Audio Player - Persists across tab switches
@@ -8,6 +9,9 @@ import { useStore } from "@/store";
  */
 export function GlobalAudioPlayer() {
   const audioRef = useRef<HTMLAudioElement | null>(null);
+  const audioContextRef = useRef<AudioContext | null>(null);
+  const sourceNodeRef = useRef<MediaElementAudioSourceNode | null>(null);
+  const analyserNodeRef = useRef<AnalyserNode | null>(null);
   const { audioPlayer, stopAudio } = useStore();
   
   const settings = useStore(state => state.settings);
@@ -47,6 +51,39 @@ export function GlobalAudioPlayer() {
     // Handle play/pause state
     if (audioPlayer.isPlaying) {
       if (audio.paused) {
+        // Set up audio analysis for avatar mouth animation
+        try {
+          if (!audioContextRef.current) {
+            audioContextRef.current = new (window.AudioContext || (window as any).webkitAudioContext)();
+          }
+          
+          // Create source from audio element (only once per audio element)
+          if (!sourceNodeRef.current && audioContextRef.current) {
+            sourceNodeRef.current = audioContextRef.current.createMediaElementSource(audio);
+            
+            // Create analyser
+            analyserNodeRef.current = audioContextRef.current.createAnalyser();
+            analyserNodeRef.current.fftSize = 64;
+            analyserNodeRef.current.smoothingTimeConstant = 0.8;
+            
+            // Connect: source -> analyser -> destination
+            sourceNodeRef.current.connect(analyserNodeRef.current);
+            analyserNodeRef.current.connect(audioContextRef.current.destination);
+            
+            // Connect to global analyzer for avatar
+            if (analyserNodeRef.current) {
+              audioAnalyzer.connectNode(analyserNodeRef.current);
+            }
+          }
+          
+          // Resume context if suspended
+          if (audioContextRef.current.state === 'suspended') {
+            audioContextRef.current.resume();
+          }
+        } catch (err) {
+          console.error("[GlobalAudioPlayer] Audio analysis setup failed:", err);
+        }
+        
         audio.play().catch((err) => {
           console.error("[GlobalAudioPlayer] Play failed:", err);
           stopAudio();
@@ -67,6 +104,21 @@ export function GlobalAudioPlayer() {
         audioRef.current.pause();
         audioRef.current = null;
       }
+      
+      // Cleanup audio context and analysis
+      if (sourceNodeRef.current) {
+        sourceNodeRef.current.disconnect();
+        sourceNodeRef.current = null;
+      }
+      if (analyserNodeRef.current) {
+        analyserNodeRef.current.disconnect();
+        analyserNodeRef.current = null;
+      }
+      if (audioContextRef.current) {
+        audioContextRef.current.close();
+        audioContextRef.current = null;
+      }
+      audioAnalyzer.cleanup();
     };
   }, []);
   

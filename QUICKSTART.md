@@ -1,6 +1,8 @@
-# Mimic AI - Quick Start Guide
+# Mimic AI v1.1.0 - Quick Start Guide
 
 Get Mimic AI running in minutes with this streamlined setup guide.
+
+> **New in v1.1:** VRM avatar support with 3D models, VRMA animations, and avatar-persona memory integration.
 
 ---
 
@@ -129,8 +131,12 @@ When you first open Mimic AI:
 
 1. **Accept Terms** - Review and accept the AI disclosure agreement
 2. **Select Model** - Choose your downloaded Ollama model from the dropdown
-3. **Test Voice** - Create a persona and test voice synthesis in Voice Studio
-4. **Enable Search** - Toggle Web Search in Settings (requires Docker)
+3. **Meet Your Avatar** - v1.1 includes a 3D VRM avatar that loads automatically
+4. **Test Voice** - The default persona comes with a pre-configured voice (Qwen3)
+5. **Enable Search** - Toggle Web Search in Settings (requires Docker)
+
+### Upgrading from v1.0?
+Your existing personas and memories are preserved. The default "Mimic" persona will automatically upgrade to the new 3D VRM avatar. You can switch between avatar types (VRM or Abstract) in the Persona Manager.
 
 ---
 
@@ -168,9 +174,12 @@ When you first open Mimic AI:
 ## Next Steps
 
 - **Create a Persona:** Personas tab → New Persona → Customize personality and voice
+- **Upload a VRM Avatar:** Persona Manager → Avatar tab → Upload VRM to use custom VRoid models
+- **Try VRMA Animations:** Your avatar can play animations like greetings, dances, and poses
 - **Upload Memories:** Memory Manager → New Memory File → Add knowledge for AI to reference
 - **Enable Wake Word:** Settings → Voice → Enable Auto-Listen for hands-free activation
 - **Voice Creation:** Voice Studio → Record or upload reference audio → Create custom voice
+- **Avatar Personality:** Personality prompts now influence avatar expressions and behavior
 
 ---
 

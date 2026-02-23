@@ -38,6 +38,26 @@ A privacy-first, AI-powered desktop assistant with voice synthesis, persistent m
 - Voice creation with adjustable parameters (pitch, speed, emotion, etc.)
 - Avatar customization with dynamic 3D visuals
 
+### Avatar Personality System (New!)
+- **Automatic Trait Extraction**: Derives avatar personality traits (energy, playfulness, expressiveness, curiosity, empathy, formality) from personality prompts
+- **Voice Parameter Derivation**: Automatically adjusts voice parameters based on extracted personality traits
+- **Dynamic Emotional State**: Avatar tracks and displays emotional states during conversations
+- **Height-Based Camera**: Camera intelligently positions based on avatar model height for optimal viewing
+- **Procedural Vocalizations**: AI-generated non-verbal sounds (giggles, sighs, hums) using Qwen TTS (cached, max 10 per persona)
+
+### Persona Learning System (New!)
+- **Interaction Tracking**: Records conversation history and user preferences per persona
+- **Emote Learning**: Tracks preferred emotes and animations based on user feedback
+- **Relationship Metrics**: Calculates rapport, familiarity, and trust scores over time
+- **Favorite Topics**: Automatically identifies and remembers user's favorite conversation topics
+- **Emotional History**: Maintains emotional state history for more natural interactions
+
+### Licensing
+- **7-Day Free Trial**: Full functionality for 7 days from first launch
+- **Subscription**: $5/month via Patreon for continued use after trial
+- **Support Development**: Subscribe to help fund ongoing development
+- **Subscribe**: https://www.patreon.com/c/MimicAIDigitalAssistant
+
 ### Memory Management
 - **File Memories**: Upload text files for the AI to reference
 - **Conversation Memories**: Automatic extraction of important conversation points
@@ -615,14 +635,26 @@ All AI-generated audio contains invisible watermarks for:
 
 ---
 
+## Attribution
+
+### Character Model
+- **Default Avatar**: PeePhanthong (VRoid Hub)
+
+### Animations
+- **VRoid Project** by pixiv Inc.
+- **八ツ橋まろんのお店** (Yatsuhashi Maron's Shop)
+- **Kannaku @ Nekokoya**
+
+See [ATTRIBUTION.md](ATTRIBUTION.md) for full credits and license terms.
+
 ## License
 
-MIT License - See LICENSE file for details
+Proprietary License with 7-Day Trial - See [LICENSE.txt](LICENSE.txt) for details
 
-## Contributing
-
-Contributions welcome! Please read CONTRIBUTING.md for guidelines.
+Copyright (c) 2026 Mimic AI. All Rights Reserved.
 
 ## Support
 
-For issues and feature requests, please use the GitHub issue tracker.
+- **Patreon**: https://www.patreon.com/c/MimicAIDigitalAssistant
+- **Issues**: Use GitHub issue tracker
+- **Documentation**: See [QUICKSTART.md](QUICKSTART.md)

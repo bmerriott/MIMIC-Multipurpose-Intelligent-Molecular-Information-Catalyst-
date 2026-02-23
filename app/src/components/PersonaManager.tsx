@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect, useRef } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { 
   Plus, 
@@ -12,7 +12,12 @@ import {
   X,
   Check,
   Wand2,
-  Volume2
+  Volume2,
+  Upload,
+  Trash,
+  Edit3,
+  FileBox,
+  Loader2
 } from "lucide-react";
 import { useStore } from "@/store";
 import type { Persona, AvatarConfig } from "@/types";
@@ -25,6 +30,20 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from ".
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { ollamaService } from "@/services/ollama";
+import { 
+  listVrmLibrary, 
+  saveVrmToLibrary, 
+  deleteVrmFromLibrary, 
+  renameVrmInLibrary,
+  formatFileSize,
+  type VrmEntry 
+} from "@/services/vrmLibrary";
+import {
+  listPersonaVrmas,
+  saveVrmaToPersona,
+  deleteVrma,
+  type VrmaEntry
+} from "@/services/vrmaLibrary";
 
 const VOICES = [
   { value: "vivian", label: "Vivian (Chinese Female)" },
@@ -37,6 +56,476 @@ const VOICES = [
   { value: "ono_anna", label: "Ono Anna (Japanese Female)" },
   { value: "sohee", label: "Sohee (Korean Female)" },
 ];
+
+interface VrmLibrarySelectorProps {
+  selectedVrmId?: string;
+  onSelect: (vrmId: string | undefined, modelUrl: string | undefined) => void;
+}
+
+function VrmLibrarySelector({ selectedVrmId, onSelect }: VrmLibrarySelectorProps) {
+  const [vrms, setVrms] = useState<VrmEntry[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [isUploading, setIsUploading] = useState(false);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editingName, setEditingName] = useState("");
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // Load VRM library on mount
+  useEffect(() => {
+    loadLibrary();
+  }, []);
+
+  const loadLibrary = async () => {
+    try {
+      setIsLoading(true);
+      const library = await listVrmLibrary();
+      setVrms(library.entries);
+    } catch (error) {
+      console.error("Failed to load VRM library:", error);
+      toast.error("Failed to load VRM library");
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    // Validate file type
+    if (!file.name.toLowerCase().endsWith('.vrm')) {
+      toast.error("Please select a .vrm file");
+      return;
+    }
+
+    // Validate file size (max 100MB)
+    if (file.size > 100 * 1024 * 1024) {
+      toast.error("File too large. Maximum size is 100MB");
+      return;
+    }
+
+    try {
+      setIsUploading(true);
+      toast.info(`Uploading ${file.name}...`);
+      
+      const name = file.name.replace(/\.vrm$/i, "");
+      const entry = await saveVrmToLibrary(name, file);
+      
+      toast.success(`"${entry.name}" added to library`);
+      await loadLibrary();
+      
+      // Auto-select the newly uploaded VRM
+      onSelect(entry.id, undefined);
+    } catch (error) {
+      console.error("Failed to upload VRM:", error);
+      toast.error("Failed to upload VRM file");
+    } finally {
+      setIsUploading(false);
+      // Reset file input
+      if (fileInputRef.current) {
+        fileInputRef.current.value = "";
+      }
+    }
+  };
+
+  const handleDelete = async (vrm: VrmEntry, e: React.MouseEvent) => {
+    e.stopPropagation();
+    
+    if (!confirm(`Delete "${vrm.name}" from library?`)) return;
+
+    try {
+      await deleteVrmFromLibrary(vrm.id);
+      toast.success(`"${vrm.name}" deleted`);
+      
+      // If this was the selected VRM, clear selection
+      if (selectedVrmId === vrm.id) {
+        onSelect(undefined, undefined);
+      }
+      
+      await loadLibrary();
+    } catch (error) {
+      console.error("Failed to delete VRM:", error);
+      toast.error("Failed to delete VRM");
+    }
+  };
+
+  const startEditing = (vrm: VrmEntry, e: React.MouseEvent) => {
+    e.stopPropagation();
+    setEditingId(vrm.id);
+    setEditingName(vrm.name);
+  };
+
+  const saveRename = async (vrmId: string) => {
+    if (!editingName.trim()) {
+      setEditingId(null);
+      return;
+    }
+
+    try {
+      await renameVrmInLibrary(vrmId, editingName.trim());
+      toast.success("Renamed successfully");
+      await loadLibrary();
+    } catch (error) {
+      console.error("Failed to rename VRM:", error);
+      toast.error("Failed to rename");
+    } finally {
+      setEditingId(null);
+    }
+  };
+
+  const selectVrm = (vrm: VrmEntry) => {
+    // Just pass the vrmId - AvatarScene will load the blob URL fresh
+    onSelect(vrm.id, undefined);
+    toast.success(`Selected "${vrm.name}"`);
+  };
+
+  return (
+    <div className="space-y-3 pt-3 border-t">
+      <div className="flex items-center justify-between">
+        <Label className="text-xs font-semibold">VRM Library</Label>
+        <input
+          type="file"
+          accept=".vrm"
+          ref={fileInputRef}
+          onChange={handleFileSelect}
+          className="hidden"
+        />
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          onClick={() => fileInputRef.current?.click()}
+          disabled={isUploading}
+        >
+          {isUploading ? (
+            <Loader2 className="w-3 h-3 mr-1 animate-spin" />
+          ) : (
+            <Upload className="w-3 h-3 mr-1" />
+          )}
+          {isUploading ? "Uploading..." : "Upload VRM"}
+        </Button>
+      </div>
+
+      {isLoading ? (
+        <div className="text-center py-4 text-muted-foreground">
+          <Loader2 className="w-5 h-5 animate-spin mx-auto mb-2" />
+          Loading library...
+        </div>
+      ) : vrms.length === 0 ? (
+        <div className="text-center py-6 border rounded-lg bg-muted/50">
+          <FileBox className="w-8 h-8 mx-auto mb-2 text-muted-foreground" />
+          <p className="text-sm text-muted-foreground">No VRM files in library</p>
+          <p className="text-xs text-muted-foreground mt-1">
+            Upload a .vrm file to use it as your avatar
+          </p>
+        </div>
+      ) : (
+        <div className="space-y-1 max-h-48 overflow-auto border rounded-lg p-1">
+          {vrms.map((vrm) => (
+            <div
+              key={vrm.id}
+              onClick={() => selectVrm(vrm)}
+              className={cn(
+                "flex items-center gap-2 p-2 rounded cursor-pointer transition-colors",
+                selectedVrmId === vrm.id
+                  ? "bg-primary/10 border border-primary/30"
+                  : "hover:bg-muted border border-transparent"
+              )}
+            >
+              <div className="w-8 h-8 rounded bg-muted flex items-center justify-center flex-shrink-0">
+                <FileBox className="w-4 h-4 text-muted-foreground" />
+              </div>
+              
+              <div className="flex-1 min-w-0">
+                {editingId === vrm.id ? (
+                  <Input
+                    value={editingName}
+                    onChange={(e) => setEditingName(e.target.value)}
+                    onBlur={() => saveRename(vrm.id)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") saveRename(vrm.id);
+                      if (e.key === "Escape") setEditingId(null);
+                    }}
+                    className="h-6 text-xs py-0"
+                    autoFocus
+                    onClick={(e) => e.stopPropagation()}
+                  />
+                ) : (
+                  <>
+                    <p className="text-sm font-medium truncate">{vrm.name}</p>
+                    <p className="text-xs text-muted-foreground">
+                      {formatFileSize(vrm.size_bytes)}
+                    </p>
+                  </>
+                )}
+              </div>
+
+              <div className="flex items-center gap-1">
+                {selectedVrmId === vrm.id && (
+                  <Check className="w-4 h-4 text-primary" />
+                )}
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon"
+                  className="h-6 w-6"
+                  onClick={(e) => startEditing(vrm, e)}
+                >
+                  <Edit3 className="w-3 h-3" />
+                </Button>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon"
+                  className="h-6 w-6 text-destructive hover:text-destructive"
+                  onClick={(e) => handleDelete(vrm, e)}
+                >
+                  <Trash className="w-3 h-3" />
+                </Button>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {selectedVrmId && (
+        <p className="text-xs text-muted-foreground">
+          Selected VRM will be used for this persona. Supports lip sync during speech!
+        </p>
+      )}
+    </div>
+  );
+}
+
+// VRMA Animation Library Selector
+interface VrmaLibrarySelectorProps {
+  personaId?: string;
+  vrmaPaths?: Record<string, string>;
+  onChange: (vrmaPaths: Record<string, string>) => void;
+}
+
+function VrmaLibrarySelector({ personaId, vrmaPaths = {}, onChange }: VrmaLibrarySelectorProps) {
+  const [vrmas, setVrmas] = useState<VrmaEntry[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [isUploading, setIsUploading] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    if (personaId) {
+      loadVrmas();
+    }
+  }, [personaId]);
+
+  const loadVrmas = async () => {
+    if (!personaId) return;
+    try {
+      setIsLoading(true);
+      const entries = await listPersonaVrmas(personaId);
+      setVrmas(entries);
+    } catch (error) {
+      console.error("Failed to load VRMAs:", error);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file || !personaId) return;
+
+    if (!file.name.toLowerCase().endsWith('.vrma')) {
+      toast.error("Please select a .vrma file");
+      return;
+    }
+
+    if (file.size > 50 * 1024 * 1024) {
+      toast.error("File too large. Maximum size is 50MB");
+      return;
+    }
+
+    try {
+      setIsUploading(true);
+      toast.info(`Uploading ${file.name}...`);
+      
+      const entry = await saveVrmaToPersona(personaId, file);
+      
+      toast.success(`"${entry.name}" added`);
+      await loadVrmas();
+      
+      // Update parent with new paths
+      onChange({ ...vrmaPaths, [entry.name]: entry.path });
+    } catch (error) {
+      console.error("Failed to upload VRMA:", error);
+      toast.error("Failed to upload VRMA file");
+    } finally {
+      setIsUploading(false);
+      if (fileInputRef.current) {
+        fileInputRef.current.value = "";
+      }
+    }
+  };
+
+  const handleDelete = async (vrma: VrmaEntry) => {
+    if (!personaId || !confirm(`Delete "${vrma.name}"?`)) return;
+
+    try {
+      await deleteVrma(personaId, vrma.id);
+      toast.success(`"${vrma.name}" deleted`);
+      
+      // Remove from paths
+      const newPaths = { ...vrmaPaths };
+      delete newPaths[vrma.name];
+      onChange(newPaths);
+      
+      await loadVrmas();
+    } catch (error) {
+      console.error("Failed to delete VRMA:", error);
+      toast.error("Failed to delete VRMA");
+    }
+  };
+
+  return (
+    <div className="space-y-2 pt-2 border-t">
+      <div className="flex items-center justify-between">
+        <Label className="text-xs font-semibold">Custom Animations (VRMA)</Label>
+        <input
+          type="file"
+          accept=".vrma"
+          ref={fileInputRef}
+          onChange={handleFileSelect}
+          className="hidden"
+        />
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          onClick={() => fileInputRef.current?.click()}
+          disabled={isUploading || !personaId}
+        >
+          {isUploading ? (
+            <Loader2 className="w-3 h-3 mr-1 animate-spin" />
+          ) : (
+            <Upload className="w-3 h-3 mr-1" />
+          )}
+          {isUploading ? "Uploading..." : "Upload VRMA"}
+        </Button>
+      </div>
+
+      {!personaId && (
+        <p className="text-xs text-muted-foreground">
+          Save the persona first to upload custom animations
+        </p>
+      )}
+
+      {isLoading ? (
+        <div className="text-center py-2">
+          <Loader2 className="w-4 h-4 animate-spin mx-auto" />
+        </div>
+      ) : vrmas.length === 0 ? (
+        <p className="text-xs text-muted-foreground">
+          No custom animations. Upload .vrma files to add unique animations for this persona.
+        </p>
+      ) : (
+        <div className="space-y-1 max-h-32 overflow-auto border rounded p-1">
+          {vrmas.map((vrma) => (
+            <div
+              key={vrma.id}
+              className="flex items-center justify-between px-2 py-1.5 rounded text-sm hover:bg-muted/50"
+            >
+              <div className="flex items-center gap-2">
+                <Sparkles className="w-3 h-3 text-muted-foreground" />
+                <span className="truncate max-w-[120px]">{vrma.name}</span>
+                <span className="text-xs text-muted-foreground">
+                  {formatFileSize(vrma.size)}
+                </span>
+              </div>
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon"
+                className="h-5 w-5 text-destructive hover:text-destructive"
+                onClick={() => handleDelete(vrma)}
+              >
+                <Trash className="w-3 h-3" />
+              </Button>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// Base Animation Selector
+interface BaseAnimationSelectorProps {
+  enabledVrmas?: string[];
+  onChange: (enabledVrmas: string[]) => void;
+}
+
+const BASE_ANIMATIONS = [
+  { id: 'greeting', label: 'Greeting', description: 'Wave/hello animation' },
+  { id: 'peaceSign', label: 'Peace Sign', description: 'Peace sign pose' },
+  { id: 'shoot', label: 'Shoot', description: 'Point and shoot gesture' },
+  { id: 'spin', label: 'Spin', description: '360 degree spin' },
+  { id: 'modelPose', label: 'Model Pose', description: 'Fashion model pose' },
+  { id: 'squat', label: 'Squat', description: 'Squat down' },
+];
+
+function BaseAnimationSelector({ enabledVrmas, onChange }: BaseAnimationSelectorProps) {
+  const enabled = enabledVrmas || BASE_ANIMATIONS.map(a => a.id);
+  
+  const toggleAnimation = (id: string) => {
+    if (enabled.includes(id)) {
+      // Don't allow disabling if it would leave less than 2 animations
+      if (enabled.length <= 2) {
+        toast.error("Keep at least 2 animations enabled");
+        return;
+      }
+      onChange(enabled.filter(e => e !== id));
+    } else {
+      onChange([...enabled, id]);
+    }
+  };
+  
+  return (
+    <div className="space-y-3 pt-3 border-t">
+      <div className="flex items-center justify-between">
+        <Label className="text-xs font-semibold">Base Animations</Label>
+        <span className="text-xs text-muted-foreground">
+          {enabled.length} enabled
+        </span>
+      </div>
+      
+      <div className="space-y-1.5 max-h-40 overflow-y-auto border rounded p-2">
+        {BASE_ANIMATIONS.map((anim) => (
+          <div
+            key={anim.id}
+            className="flex items-center justify-between py-1.5 px-2 rounded hover:bg-muted/50 cursor-pointer"
+            onClick={() => toggleAnimation(anim.id)}
+          >
+            <div className="flex-1 min-w-0">
+              <div className="text-sm font-medium">{anim.label}</div>
+              <div className="text-xs text-muted-foreground truncate">
+                {anim.description}
+              </div>
+            </div>
+            <div className="ml-2">
+              {enabled.includes(anim.id) ? (
+                <Check className="w-4 h-4 text-green-500" />
+              ) : (
+                <div className="w-4 h-4 rounded-sm border-2 border-muted-foreground/30" />
+              )}
+            </div>
+          </div>
+        ))}
+      </div>
+      
+      <p className="text-xs text-muted-foreground">
+        Select which base animations are available for this persona. Changes apply immediately.
+      </p>
+    </div>
+  );
+}
 
 interface PersonaFormProps {
   persona?: Persona;
@@ -58,6 +547,7 @@ function PersonaForm({ persona, onSave, onCancel }: PersonaFormProps) {
     response_words: responseWordsStr,
     voice_id: persona?.voice_id || "aiden",
     avatar_config: persona?.avatar_config || {
+      type: "abstract",
       primary_color: "#6366f1",
       secondary_color: "#8b5cf6",
       glow_color: "#a78bfa",
@@ -229,6 +719,93 @@ function PersonaForm({ persona, onSave, onCancel }: PersonaFormProps) {
           <p className="text-xs text-muted-foreground">
             Select a preset voice or use the Voice Studio to create a custom voice
           </p>
+        </div>
+
+        {/* Avatar Type Selection */}
+        <div className="space-y-4 border rounded-lg p-4">
+          <Label className="flex items-center gap-2 text-sm font-semibold">
+            <Sparkles className="w-4 h-4" />
+            Avatar Type
+          </Label>
+          
+          <Select 
+            value={formData.avatar_config.type || "abstract"}
+            onValueChange={(value) => 
+              setFormData({
+                ...formData,
+                avatar_config: { ...formData.avatar_config, type: value as any }
+              })
+            }
+          >
+            <SelectTrigger>
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="abstract">
+                <div className="flex flex-col items-start">
+                  <span>Abstract Sphere</span>
+                  <span className="text-xs text-muted-foreground">Animated geometric shape (default)</span>
+                </div>
+              </SelectItem>
+              
+              <SelectItem value="vrm">
+                <div className="flex flex-col items-start">
+                  <span>VRM Avatar</span>
+                  <span className="text-xs text-muted-foreground">3D character model (.vrm)</span>
+                </div>
+              </SelectItem>
+
+            </SelectContent>
+          </Select>
+          
+          
+          
+          <p className="text-xs text-muted-foreground">
+            Choose how your persona appears. VRM avatars support lip sync with speech!
+          </p>
+          
+          {/* VRM Library Selection */}
+          {formData.avatar_config.type === "vrm" && (
+            <>
+              <VrmLibrarySelector
+                selectedVrmId={formData.avatar_config.vrm_id}
+                onSelect={(vrmId, _modelUrl) => setFormData({
+                  ...formData,
+                  avatar_config: { 
+                    ...formData.avatar_config, 
+                    vrm_id: vrmId,
+                    // Don't store blob URL - it expires! Just store vrm_id
+                    model_url: undefined 
+                  }
+                })}
+              />
+              
+              {/* VRMA Animation Library */}
+              <VrmaLibrarySelector
+                personaId={persona?.id}
+                vrmaPaths={formData.avatar_config.vrma_paths}
+                onChange={(vrmaPaths) => setFormData({
+                  ...formData,
+                  avatar_config: {
+                    ...formData.avatar_config,
+                    vrma_paths: vrmaPaths
+                  }
+                })}
+              />
+              
+              {/* Base Animation Toggles */}
+              <BaseAnimationSelector
+                enabledVrmas={formData.avatar_config.enabled_base_vrmas}
+                onChange={(enabledVrmas) => setFormData({
+                  ...formData,
+                  avatar_config: {
+                    ...formData.avatar_config,
+                    enabled_base_vrmas: enabledVrmas
+                  }
+                })}
+              />
+            </>
+          )}
         </div>
 
         {/* Color Customization */}
