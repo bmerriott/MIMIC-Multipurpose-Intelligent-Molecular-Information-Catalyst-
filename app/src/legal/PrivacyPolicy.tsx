@@ -241,7 +241,7 @@ export function PrivacyPolicy({ onBack }: PrivacyPolicyProps) {
               <li>No voice recordings are stored or processed</li>
               <li>All AI-generated audio contains identifying watermarks</li>
               <li>No cloud storage of sensitive data</li>
-              <li>Open-source code for transparency</li>
+              <li>Transparent privacy practices - see what data we collect</li>
             </ul>
             <p className="text-sm text-muted-foreground leading-relaxed mt-3">
               However, no security is perfect. You are responsible for:
