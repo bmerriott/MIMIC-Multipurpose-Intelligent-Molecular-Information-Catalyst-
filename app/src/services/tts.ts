@@ -1,12 +1,12 @@
 import type { TTSCreateRequest, TTSGenerateRequest, TTSResponse } from "@/types";
 
 // TTS Engine types
-export type TTSEngine = "off" | "browser" | "qwen3";
+export type TTSEngine = "off" | "qwen3" | "kitten";
 export type Qwen3ModelSize = "0.6B" | "1.7B";
 
 // Voice creation parameters - Comprehensive tuning
 export interface VoiceCreationParams {
-  // Reference audio (optional for StyleTTS2, required for Qwen3)
+  // Reference audio (required for Qwen3, optional for KittenTTS)
   reference_audio?: string; // Base64 encoded
   reference_text?: string;  // Transcript of reference audio
   
@@ -63,7 +63,6 @@ export interface SyntheticVoiceParams {
 
 export interface EngineStatus {
   qwen3_available: boolean;
-  browser_tts_available: boolean;
   cuda_available: boolean;
   current_engine: string;
   qwen3_loaded_size: string | null;
@@ -71,6 +70,8 @@ export interface EngineStatus {
 
 export class TTSService {
   private baseUrl: string;
+  private lastRequestTime: number = 0;
+  private minRequestInterval: number = 500; // Minimum 500ms between requests
 
   constructor(baseUrl: string = "http://localhost:8000") {
     this.baseUrl = baseUrl;
@@ -78,6 +79,17 @@ export class TTSService {
 
   setBaseUrl(url: string) {
     this.baseUrl = url;
+  }
+
+  // Rate limiting helper - ensures we don't overwhelm the backend
+  private async rateLimit(): Promise<void> {
+    const now = Date.now();
+    const timeSinceLastRequest = now - this.lastRequestTime;
+    if (timeSinceLastRequest < this.minRequestInterval) {
+      const delay = this.minRequestInterval - timeSinceLastRequest;
+      await new Promise(resolve => setTimeout(resolve, delay));
+    }
+    this.lastRequestTime = Date.now();
   }
 
   async checkConnection(): Promise<boolean> {
@@ -158,8 +170,10 @@ export class TTSService {
     text: string,
     params: VoiceCreationParams
   ): Promise<TTSResponse & { engine_used: string }> {
+    // Qwen3 handles text naturally - don't preprocess to avoid compound word separation
+    const shouldPreprocess = params.engine !== 'qwen3';
     const processedRequest = {
-      text: this.preprocessTextForTTS(text),
+      text: shouldPreprocess ? this.preprocessTextForTTS(text) : text,
       reference_audio: params.reference_audio,
       reference_text: params.reference_text,
       // Basic tuning
@@ -258,8 +272,9 @@ export class TTSService {
     persona_id: string,
     params: Partial<VoiceCreationParams> & { playback_model_size?: "0.6B" | "1.7B" }
   ): Promise<TTSResponse & { engine_used: string; voice_profile_used: boolean }> {
+    // generateWithProfile is only used for Qwen3 - don't preprocess
     const processedRequest = {
-      text: this.preprocessTextForTTS(text),
+      text: text,
       persona_id,
       playback_model_size: params.playback_model_size || "0.6B",
       use_flash_attention: params.use_flash_attention ?? true,
@@ -303,17 +318,20 @@ export class TTSService {
     return await response.json();
   }
 
-  // Default TTS (StyleTTS2 without reference)
+  // Default TTS using KittenTTS (no reference audio required)
   async generateSpeech(request: TTSGenerateRequest): Promise<TTSResponse> {
-    const processedRequest = {
-      ...request,
-      text: this.preprocessTextForTTS(request.text),
-    };
+    const processedText = this.preprocessTextForTTS(request.text);
 
-    const response = await fetch(`${this.baseUrl}/api/tts/default`, {
+    const response = await fetch(`${this.baseUrl}/api/tts/kitten`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(processedRequest),
+      body: JSON.stringify({
+        text: processedText,
+        voice: request.voice_id || "Bella",
+        model: "KittenML/kitten-tts-nano-0.8",
+        speed: request.speed || 1.0,
+        pitch: 0,
+      }),
     });
 
     if (!response.ok) {
@@ -374,25 +392,85 @@ export class TTSService {
     return audio;
   }
 
-  // Browser TTS fallback
-  speakWithBrowserTTS(text: string, volume: number = 1.0, rate: number = 1.0): Promise<void> {
-    return new Promise((resolve, reject) => {
-      if (!("speechSynthesis" in window)) {
-        reject(new Error("Browser TTS not supported"));
-        return;
+  // ============================================
+  // KittenTTS Integration (Local Backend)
+  // ============================================
+  
+  async generateKittenTTS(
+    text: string, 
+    voice: string = "Bella",
+    model: string = "nano",
+    speed: number = 1.0,
+    retryCount: number = 0
+  ): Promise<{ audio_data: string; format: string; sample_rate: number }> {
+    const maxRetries = 3;
+    const retryDelay = 1000; // 1 second
+
+    // Apply rate limiting to prevent overwhelming the backend
+    await this.rateLimit();
+
+    try {
+      // Call local backend
+      const response = await fetch(`${this.baseUrl}/api/tts/kitten`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          text,
+          voice,
+          model, // nano, micro, or mini
+          speed, // 0.5 to 2.0
+        }),
+      });
+
+      if (!response.ok) {
+        // If server error and we haven't exhausted retries, try again
+        if (response.status >= 500 && retryCount < maxRetries) {
+          console.warn(`[KittenTTS] Server error ${response.status}, retrying ${retryCount + 1}/${maxRetries}...`);
+          await new Promise(resolve => setTimeout(resolve, retryDelay * (retryCount + 1)));
+          return this.generateKittenTTS(text, voice, model, speed, retryCount + 1);
+        }
+        
+        let errorDetail = `KittenTTS request failed: ${response.status}`;
+        try {
+          const error = await response.json();
+          errorDetail = error.detail || JSON.stringify(error);
+        } catch (e) {
+          // If JSON parsing fails, use status text
+          errorDetail = `HTTP ${response.status}: ${response.statusText}`;
+        }
+        throw new Error(errorDetail);
       }
 
-      window.speechSynthesis.cancel();
-      const utterance = new SpeechSynthesisUtterance(text);
-      utterance.rate = rate;
-      utterance.volume = volume;
-      utterance.pitch = 1;
+      const result = await response.json();
+      
+      return {
+        audio_data: result.audio_data,
+        format: result.format || "wav",
+        sample_rate: result.sample_rate || 24000
+      };
+    } catch (error) {
+      // Network or other errors - retry if we haven't exhausted retries
+      if (retryCount < maxRetries) {
+        console.warn(`[KittenTTS] Request failed, retrying ${retryCount + 1}/${maxRetries}...`, error);
+        await new Promise(resolve => setTimeout(resolve, retryDelay * (retryCount + 1)));
+        return this.generateKittenTTS(text, voice, model, speed, retryCount + 1);
+      }
+      throw error;
+    }
+  }
 
-      utterance.onend = () => resolve();
-      utterance.onerror = (e) => reject(e);
-
-      window.speechSynthesis.speak(utterance);
-    });
+  // Available KittenTTS voices (from huggingface.co/spaces/KittenML/KittenTTS-Demo)
+  getKittenTTSVoices(): { id: string; name: string; description: string }[] {
+    return [
+      { id: "Bella", name: "Bella", description: "Female voice" },
+      { id: "Jasper", name: "Jasper", description: "Male voice" },
+      { id: "Luna", name: "Luna", description: "Female voice" },
+      { id: "Bruno", name: "Bruno", description: "Male voice" },
+      { id: "Rosie", name: "Rosie", description: "Female voice" },
+      { id: "Hugo", name: "Hugo", description: "Male voice" },
+      { id: "Kiki", name: "Kiki", description: "Female voice" },
+      { id: "Leo", name: "Leo", description: "Male voice" },
+    ];
   }
 
   // Unload models to free GPU memory
@@ -448,7 +526,7 @@ export class TTSService {
       expressiveness: request.params.expressiveness,
       stability: request.params.stability,
       // Engine selection
-      engine: "browser",
+      engine: "kitten",
       qwen3_model_size: "0.6B",
       use_flash_attention: true,
       seed: request.params.seed,
@@ -485,7 +563,7 @@ export class TTSService {
       reference_text: referenceText,
       pitch_shift: 0,
       speed: speed,
-      engine: "browser",
+      engine: "kitten",
       qwen3_model_size: "0.6B",
       use_flash_attention: true,
       // Optional voice params with defaults
@@ -520,6 +598,215 @@ export class TTSService {
   async enrollVoice(_voiceId: string, _audioData: string, _text: string): Promise<{ success: boolean }> {
     console.warn("[TTSService] enrollVoice is deprecated, use uploadReferenceAudio instead");
     throw new Error("enrollVoice is deprecated. Use uploadReferenceAudio.");
+  }
+
+  // ==================== STREAMING TTS ====================
+  
+  /**
+   * Split text into natural chunks for streaming TTS
+   * Chunks are sized for optimal generation speed and smooth playback
+   */
+  private splitTextIntoChunks(text: string, maxChunkLength: number = 150): string[] {
+    // Split by sentence endings first
+    const sentenceRegex = /[^.!?]+[.!?]+["'\s]*/g;
+    const sentences = text.match(sentenceRegex) || [text];
+    
+    const chunks: string[] = [];
+    let currentChunk = "";
+    
+    for (const sentence of sentences) {
+      const trimmed = sentence.trim();
+      if (!trimmed) continue;
+      
+      // If sentence itself is too long, split by clauses (commas, semicolons)
+      if (trimmed.length > maxChunkLength) {
+        // Save current chunk if exists
+        if (currentChunk.trim()) {
+          chunks.push(currentChunk.trim());
+          currentChunk = "";
+        }
+        
+        // Split long sentence by clauses
+        const clauseRegex = /[^,;]+[,;]*/g;
+        const clauses = trimmed.match(clauseRegex) || [trimmed];
+        let clauseChunk = "";
+        
+        for (const clause of clauses) {
+          if (clauseChunk.length + clause.length > maxChunkLength && clauseChunk.length > 0) {
+            chunks.push(clauseChunk.trim());
+            clauseChunk = clause;
+          } else {
+            clauseChunk += clause;
+          }
+        }
+        
+        if (clauseChunk.trim()) {
+          chunks.push(clauseChunk.trim());
+        }
+      } else if (currentChunk.length + trimmed.length > maxChunkLength && currentChunk.length > 0) {
+        // Start new chunk
+        chunks.push(currentChunk.trim());
+        currentChunk = trimmed;
+      } else {
+        currentChunk += " " + trimmed;
+      }
+    }
+    
+    // Add final chunk
+    if (currentChunk.trim()) {
+      chunks.push(currentChunk.trim());
+    }
+    
+    return chunks.length > 0 ? chunks : [text];
+  }
+  
+  /**
+   * Streaming TTS - generates audio chunks in parallel for smooth playback
+   * Similar to YouTube/Spotify streaming approach
+   */
+  async *streamTTS(
+    text: string,
+    options: {
+      engine: "qwen3" | "kitten";
+      voiceParams?: VoiceCreationParams;
+      referenceAudio?: string;
+      referenceText?: string;
+      kittenVoice?: string;
+      kittenModel?: string;
+      speed?: number;
+      maxChunkLength?: number;
+    }
+  ): AsyncGenerator<{ chunkIndex: number; totalChunks: number; audioData: string; text: string }, void, unknown> {
+    const chunks = this.splitTextIntoChunks(text, options.maxChunkLength || 150);
+    const totalChunks = chunks.length;
+    
+    console.log(`[StreamingTTS] Split text into ${totalChunks} chunks`);
+    
+    if (totalChunks === 1) {
+      // Single chunk - generate directly
+      let audioData: string;
+      
+      if (options.engine === "qwen3" && options.referenceAudio) {
+        const result = await this.createVoice(text, {
+          reference_audio: options.referenceAudio,
+          reference_text: options.referenceText,
+          pitch_shift: options.voiceParams?.pitch_shift ?? 0,
+          speed: (options.voiceParams?.speed ?? 1.0) * (options.speed ?? 1.0),
+          warmth: options.voiceParams?.warmth ?? 0.6,
+          expressiveness: options.voiceParams?.expressiveness ?? 0.7,
+          stability: options.voiceParams?.stability ?? 0.5,
+          clarity: options.voiceParams?.clarity ?? 0.6,
+          breathiness: options.voiceParams?.breathiness ?? 0.3,
+          resonance: options.voiceParams?.resonance ?? 0.5,
+          emotion: options.voiceParams?.emotion ?? "neutral",
+          emphasis: options.voiceParams?.emphasis ?? 0.5,
+          pauses: options.voiceParams?.pauses ?? 0.5,
+          energy: options.voiceParams?.energy ?? 0.6,
+          reverb: options.voiceParams?.reverb ?? 0,
+          eq_low: options.voiceParams?.eq_low ?? 0.5,
+          eq_mid: options.voiceParams?.eq_mid ?? 0.5,
+          eq_high: options.voiceParams?.eq_high ?? 0.5,
+          compression: options.voiceParams?.compression ?? 0.3,
+          engine: "qwen3",
+          qwen3_model_size: options.voiceParams?.qwen3_model_size ?? "0.6B",
+          use_flash_attention: options.voiceParams?.use_flash_attention ?? true,
+          seed: options.voiceParams?.seed,
+        });
+        audioData = result.audio_data;
+      } else {
+        const result = await this.generateKittenTTS(
+          text,
+          options.kittenVoice || "Bella",
+          options.kittenModel || "nano",
+          options.speed ?? 1.0
+        );
+        audioData = result.audio_data;
+      }
+      
+      yield { chunkIndex: 0, totalChunks: 1, audioData, text };
+      return;
+    }
+    
+    // Multiple chunks - generate first chunk immediately, rest in parallel
+    const chunkPromises: Promise<{ index: number; audioData: string; error?: string }>[] = [];
+    
+    // Start generating all chunks in parallel
+    for (let i = 0; i < totalChunks; i++) {
+      const chunkText = chunks[i];
+      
+      chunkPromises.push(
+        (async () => {
+          try {
+            let audioData: string;
+            
+            if (options.engine === "qwen3" && options.referenceAudio) {
+              const result = await this.createVoice(chunkText, {
+                reference_audio: options.referenceAudio,
+                reference_text: options.referenceText,
+                pitch_shift: options.voiceParams?.pitch_shift ?? 0,
+                speed: (options.voiceParams?.speed ?? 1.0) * (options.speed ?? 1.0),
+                warmth: options.voiceParams?.warmth ?? 0.6,
+                expressiveness: options.voiceParams?.expressiveness ?? 0.7,
+                stability: options.voiceParams?.stability ?? 0.5,
+                clarity: options.voiceParams?.clarity ?? 0.6,
+                breathiness: options.voiceParams?.breathiness ?? 0.3,
+                resonance: options.voiceParams?.resonance ?? 0.5,
+                emotion: options.voiceParams?.emotion ?? "neutral",
+                emphasis: options.voiceParams?.emphasis ?? 0.5,
+                pauses: options.voiceParams?.pauses ?? 0.5,
+                energy: options.voiceParams?.energy ?? 0.6,
+                reverb: options.voiceParams?.reverb ?? 0,
+                eq_low: options.voiceParams?.eq_low ?? 0.5,
+                eq_mid: options.voiceParams?.eq_mid ?? 0.5,
+                eq_high: options.voiceParams?.eq_high ?? 0.5,
+                compression: options.voiceParams?.compression ?? 0.3,
+                engine: "qwen3",
+                qwen3_model_size: options.voiceParams?.qwen3_model_size ?? "0.6B",
+                use_flash_attention: options.voiceParams?.use_flash_attention ?? true,
+                seed: options.voiceParams?.seed,
+              });
+              audioData = result.audio_data;
+            } else {
+              const result = await this.generateKittenTTS(
+                chunkText,
+                options.kittenVoice || "Bella",
+                options.kittenModel || "nano",
+                options.speed ?? 1.0
+              );
+              audioData = result.audio_data;
+            }
+            
+            return { index: i, audioData };
+          } catch (error) {
+            return { 
+              index: i, 
+              audioData: "", 
+              error: error instanceof Error ? error.message : "Unknown error" 
+            };
+          }
+        })()
+      );
+    }
+    
+    // Yield chunks as they complete (in order)
+    const results = await Promise.all(chunkPromises);
+    
+    // Sort by index to maintain order
+    results.sort((a, b) => a.index - b.index);
+    
+    for (const result of results) {
+      if (result.error) {
+        console.error(`[StreamingTTS] Chunk ${result.index} failed:`, result.error);
+        continue;
+      }
+      
+      yield {
+        chunkIndex: result.index,
+        totalChunks: totalChunks,
+        audioData: result.audioData,
+        text: chunks[result.index],
+      };
+    }
   }
 }
 

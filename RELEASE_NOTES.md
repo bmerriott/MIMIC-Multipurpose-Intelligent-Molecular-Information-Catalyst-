@@ -1,167 +1,198 @@
-# Release Notes - Mimic AI v1.1.0
+# MIMIC AI v1.2.0 Release Notes
 
-**Release Date:** February 22, 2026  
-**Version:** 1.1.0
-
----
-
-## 🎉 What's New
-
-### VRM Avatar Support (New!)
-- **Full 3D Avatar Support**: Load and display VRM models from VRoid Hub or custom creations
-- **Expression & Lip-Sync**: VRM avatars show expressions and lip-sync to speech
-- **Bundled Default Avatar**: Ships with PeePhanthong's character model ready to use
-- **Height-Based Camera**: Camera intelligently positions based on avatar model height for optimal viewing
-
-### VRMA Animation Support (New!)
-- **Animation Library**: Play VRMA animation files on VRM avatars
-- **Bundled Animations**: Includes greetings, poses, dances, and idle animations
-- **Context-Aware**: Avatars automatically play appropriate animations based on conversation
-
-### Avatar-Persona Memory Integration (New!)
-- **Shared Context**: Avatars now access their persona's contextual memory
-- **Emotional Reflection**: Avatar expressions reflect the persona's emotional state
-- **Personality-Driven**: Avatar behavior influenced by persona's personality traits
-
-### Bundled Default Persona
-- **Pre-configured VRM Avatar**: Ships with character model ready to use
-- **Default Voice Included**: Bundled Qwen3 voice reference for immediate voice synthesis
-- **Automatic Setup**: Assets copied to user data on first launch - no manual configuration needed
-- **Fresh Install Experience**: New users get a fully functional 3D avatar out of the box
-
-### Avatar Personality System
-- **Automatic Trait Extraction**: Derives personality traits (energy, playfulness, expressiveness, curiosity, empathy, formality) from personality prompts
-- **Voice Parameter Derivation**: Automatically adjusts voice parameters based on extracted personality traits
-- **Dynamic Emotional State**: Avatar tracks and displays emotional states during conversations
-
-### Persona Learning System
-- **Interaction Tracking**: Records conversation history and user preferences per persona
-- **Emote Learning**: Tracks preferred emotes and animations based on user feedback
-- **Relationship Metrics**: Calculates rapport, familiarity, and trust scores over time
-- **Favorite Topics**: Automatically identifies and remembers user's favorite conversation topics
-- **Emotional History**: Maintains emotional state history for more natural interactions
-
-### Procedural Vocalizations
-- AI-generated non-verbal sounds (giggles, sighs, hums) using Qwen3 TTS
-- Cached in IndexedDB (max 10 per persona)
-- Adds natural expressiveness to conversations
+**Release Date:** February 28, 2026  
+**Codename:** "Smart Voice"  
+**Licensor:** Dead Head Studios
 
 ---
 
-## 🔧 Improvements
+## 🎉 Major Features
 
-### Camera & Visuals
-- **Fixed Camera Snapping**: Avatar no longer zooms in too close after loading (base distance increased to 4.5 units)
-- **Real-Time Color Updates**: Blob avatar colors update instantly when using color wheel
+### 🔊 KittenTTS - New Default Voice Engine
+- **Replaces Browser TTS** as the default voice engine
+- **8 Selectable AI Voices:**
+  - Female: Bella, Luna, Rosie, Kiki
+  - Male: Jasper, Bruno, Hugo, Leo
+- **Adjustable Speech Speed:** 0.5x to 2.0x
+- **No VRAM Required:** CPU-based inference (15M-80M parameter models)
+- **Fast and Reliable:** No setup or dependencies required
 
-### Audio & Voice
-- **Fixed Audio Playback**: Resolved AudioContext suspension issue causing silent audio
-- **Longer Voice Prompts**: Increased silence delay from 3.5s to 5s (allows natural pauses)
-- **Extended Command Timeout**: Increased from 8s to 10s for longer speech
+### 🧠 Improved Memory System
+- **Per-Persona Memory Isolation:** Each persona has their own folder:
+  ```
+  ~/MimicAI/Memories/{persona_id}/
+  ├── user_files/          # Uploaded documents
+  ├── conversations/       # Conversation exports
+  └── history.json         # Full conversation history
+  ```
+- **No File Size Limits:** Upload any size file (user-managed local storage)
+- **Full History Tracking:** Complete conversation log with search capability
+- **Memory Manager Updates:**
+  - AI Memories tab shows current persona only
+  - Full History tab with persona selector
+  - File-based storage for persistence
 
-### Licensing
-- **7-Day Free Trial**: Full functionality for 7 days from first launch
-- **Subscription Model**: $5/month via Patreon for continued use after trial
-- **Support Development**: Subscribe to help fund ongoing development
+### 🎯 Smart Router System
+- **Intent Classification:** Lightweight LLM (Qwen3:0.6B) routes queries
+- **Search Result Summarization:** Automatically compresses web search results
+  - Reduces token usage by 60-80%
+  - Faster inference times
+  - More focused responses
+- **Minimal System Prompts:** Under 500 tokens for faster processing
 
----
+### 📷 Image Attachment Support
+- **Paperclip Button:** Now supports image upload
+- **Supported Formats:** JPG, PNG, GIF, WebP, BMP, SVG
+- **Vision Analysis:** Attached images analyzed by vision model
+- **10MB Max Size:** For images (5MB for documents)
 
-## 🐛 Bug Fixes
+### 🎥 Camera & Animation Improvements
+- **Improved Camera Follow:** Smoother tracking during avatar movement
+- **Height-Based Positioning:** Camera adjusts based on avatar model height
+- **Enhanced Lip Sync:** Better syllable detection and mouth movement
+- **18 Emote Animations:** Full set of idle and expressive animations
 
-| Issue | Fix |
-|-------|-----|
-| Camera snaps too close on load | Camera only adjusts if too close, respects user's zoom |
-| No audio from Browser/Qwen TTS | Added AudioContext.resume() for suspended contexts |
-| Voice prompts cut off early | Increased silence detection to 5 seconds |
-| Blob colors don't update live | Real-time uniform updates in shader |
-
----
-
-## 🎨 Attribution
-
-### Character Model
-- **Default Avatar**: PeePhanthong (VRoid Hub)
-
-### Animations
-- **VRoid Project** by pixiv Inc.
-- **八ツ橋まろんのお店** (Yatsuhashi Maron's Shop)
-- **Kannaku @ Nekokoya**
-
-See [ATTRIBUTION.md](ATTRIBUTION.md) for full credits and license terms.
-
----
-
-## 📦 Assets
-
-### Bundled with Release
-- Default VRM avatar (`personas/default/avatar.vrm`)
-- Default voice reference (`personas/default/voice.wav`)
-- Voice configuration (`personas/default/voice.json`)
-- VRMA animation library
-
-### Default Persona
-The default "Mimic" persona now ships with:
-- VRM avatar loaded by default
-- Qwen3 voice configured
-- Can be customized or replaced by user
+### 💳 Licensing Changes
+- **Subscription Removed:** No longer required for full access
+- **Freemium Model:** Core features free, premium assets available via in-app purchases
+- **Proprietary License:** See LICENSE.txt for full EULA
 
 ---
 
-## 🚀 Installation
+## 🔧 Technical Improvements
 
-### Windows
-1. Download `Mimic-AI-v1.1.0.zip` from GitHub Releases
-2. Extract the ZIP file
-3. Run `Mimic-AI-Setup.exe` to install
-4. Launch from Start Menu or Desktop
+### Console & Debugging
+- **Clean Console:** Removed 50+ debug console.log statements
+- **Production Ready:** No debug output in release builds
+- **Error Handling:** User-facing toast notifications preserved
 
-### From Source
-See [QUICKSTART.md](QUICKSTART.md) for development setup.
+### System Prompt Optimization
+- **Minimal Prompts:** Reduced from 5000+ tokens to under 500
+- **No Emoji Policy:** Responses exclude emojis (TTS reads them aloud)
+- **Search Results in User Message:** Keeps system prompt clean
+- **Router-Guided Style:** Only adds style guidance when confidence > 60%
 
----
-
-## 💻 System Requirements
-
-- **OS**: Windows 10/11, macOS 12+, or Linux
-- **RAM**: 8GB minimum (16GB recommended)
-- **Storage**: 5GB free space
-- **Python**: 3.10-3.12 (3.13+ not supported)
-- **Ollama**: Latest version from [ollama.com](https://ollama.com)
+### Voice & TTS
+- **Consistent Voice Selection:** KittenTTS voice persists across sessions
+- **Speed Control:** Per-persona speech speed settings
+- **Qwen3 Fallback:** Falls back to KittenTTS if reference audio missing
 
 ---
 
-## 🔐 Privacy & Security
+## 📋 Changes from v1.1.0
 
-- All AI processing runs locally
-- Voice data never leaves your machine
-- Chat history stored locally
-- AI-generated audio contains invisible watermarks
-- No telemetry or analytics
+### Added
+- KittenTTS integration with 8 selectable voices
+- Smart router for intent classification
+- Search result summarization
+- Per-persona memory folders
+- Full conversation history tracking
+- Image attachment support (JPG, PNG, GIF, WebP, BMP, SVG)
+- Speech speed control for KittenTTS
+- Tool confirmation system for write/delete operations
+- Agent self-awareness system
+- "NO EMOJIS" system prompt rule
 
----
+### Changed
+- **Default TTS:** Browser TTS → KittenTTS
+- **Memory Storage:** Single folder → Per-persona folders
+- **System Prompts:** Bloated → Minimal
+- **Console:** Debug logging → Clean production output
+- **AI Memories Tab:** Multi-persona selector → Current persona only
+- **Version Display:** Updated to v1.2.0 in System Info
 
-## 📝 License
-
-Proprietary License with 7-Day Trial
-
-Copyright (c) 2026 Mimic AI. All Rights Reserved.
-
-See [LICENSE.txt](LICENSE.txt) for full terms.
-
----
-
-## 🙏 Support
-
-- **Patreon**: https://www.patreon.com/c/MimicAIDigitalAssistant
-- **Issues**: GitHub issue tracker
-- **Documentation**: [README.md](README.md) | [QUICKSTART.md](QUICKSTART.md)
-
----
-
-## 🔄 Previous Versions
-
-See [CHANGELOG.md](CHANGELOG.md) for complete version history.
+### Removed
+- Browser TTS engine (completely removed)
+- Debug console logging
+- File size upload limits
+- Emoji usage in responses
 
 ---
 
-**Full Changelog**: Compare with v1.0.0
+## 🚀 Performance Improvements
+
+| Metric | v1.1.0 | v1.2.0 | Improvement |
+|--------|--------|--------|-------------|
+| System Prompt Size | ~5500 tokens | ~300 tokens | 94% reduction |
+| Search Result Size | Full raw results | Summarized | 60-80% reduction |
+| Console Output | 50+ log lines | 0 (clean) | 100% reduction |
+| TTS Setup Time | Variable | Instant | Always available |
+
+---
+
+## 📁 File Structure
+
+### Installer
+```
+Mimic AI_1.2.0_x64-setup.exe (164.7 MB)
+```
+
+### Memory Storage
+```
+~/MimicAI/Memories/
+├── default/                    # Default persona
+│   ├── user_files/
+│   ├── conversations/
+│   └── history.json
+└── persona_*/                  # Custom personas
+    ├── user_files/
+    ├── conversations/
+    └── history.json
+```
+
+---
+
+## 🎓 Usage Tips
+
+### Voice Setup (New Users)
+1. Go to **Voice Studio** tab
+2. Select **KittenTTS** engine
+3. Choose your preferred voice (Bella recommended for female, Jasper for male)
+4. Adjust speed if needed (1.0 is normal)
+5. Save to persona
+
+### Memory Management
+1. Go to **Memory Manager** (paperclip menu)
+2. **Memory Files** tab: Upload documents for the current persona
+3. **AI Memories**: View important extracted points
+4. **Full History**: Browse complete conversation log
+
+### Web Search
+1. Enable in Settings
+2. Ask questions naturally
+3. Router automatically summarizes results
+4. No need to ask for "search" explicitly
+
+### Image Analysis
+1. Click the **paperclip** button
+2. Select an image file (JPG, PNG, GIF, etc.)
+3. Add optional text prompt
+4. Send - the AI will analyze the image
+
+---
+
+## 🐛 Known Issues
+
+- Qwen3-TTS requires ~3-6GB VRAM (use KittenTTS if VRAM limited)
+- Docker Desktop required for web search functionality
+- First launch may take 30-60 seconds to initialize
+
+---
+
+## 📞 Support
+
+- **Email:** deadheadstudios@atomicmail.io
+- **GitHub:** https://github.com/bmerriott/MIMIC-Multipurpose-Intelligent-Molecular-Information-Catalyst-
+- **Documentation:** See README.md and QUICKSTART.md
+
+---
+
+## 📄 License
+
+**Proprietary License** - See LICENSE.txt for full EULA
+
+Copyright (c) 2026 Dead Head Studios. All Rights Reserved.
+
+---
+
+**Enjoy MIMIC AI v1.2.0!**

@@ -154,11 +154,11 @@ export function PrivacyPolicy({ onBack }: PrivacyPolicyProps) {
               </p>
             </div>
 
-            {/* StyleTTS 2 */}
+            {/* Voice Synthesis */}
             <div className="p-4 bg-muted rounded-lg space-y-2">
-              <h3 className="font-semibold text-sm">StyleTTS 2/QWEN3 TTS (Voice Synthesis)</h3>
+              <h3 className="font-semibold text-sm">Qwen3 TTS / KittenTTS (Voice Synthesis)</h3>
               <p className="text-sm text-muted-foreground">
-                Voice synthesis is performed using StyleTTS 2/QWEN3 TTS, which runs entirely locally on your 
+                Voice synthesis is performed using Qwen3 TTS and/or KittenTTS, which run entirely locally on your 
                 machine. No voice data or parameters are sent to external servers for synthesis.
               </p>
             </div>

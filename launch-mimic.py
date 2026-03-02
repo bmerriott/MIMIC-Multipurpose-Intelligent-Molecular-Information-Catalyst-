@@ -133,6 +133,23 @@ def install_dependencies():
         print("    [INFO] For GPU support, run:")
         print("           pip install torch torchaudio --index-url https://download.pytorch.org/whl/cu121")
     
+    # Check TTS engines (install if missing)
+    print("    Checking TTS engines...")
+    
+    # StyleTTS2 support removed - using Qwen3-TTS and KittenTTS only
+    
+    # KittenTTS
+    try:
+        import kittentts
+        print("    KittenTTS OK")
+    except ImportError:
+        print("    Installing KittenTTS...")
+        result = subprocess.run([sys.executable, "-m", "pip", "install", "kittentts"],
+                              capture_output=False)
+        if result.returncode != 0:
+            print("    [WARNING] Failed to install KittenTTS")
+            print("            KittenTTS will not be available")
+    
     print("    OK")
     return True
 

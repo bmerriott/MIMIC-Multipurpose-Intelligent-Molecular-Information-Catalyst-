@@ -44,7 +44,6 @@ $FilesToCopy = @(
     "persona_rules.py",
     "streaming_tts.py",
     "voice_profile_manager.py",
-    "tts_server_styletts2.py",
     "requirements.txt",
     ".env",
     "searxng_settings.yml"

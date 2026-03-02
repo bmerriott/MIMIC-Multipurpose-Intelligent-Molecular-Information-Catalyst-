@@ -1,11 +1,13 @@
 import { motion, AnimatePresence } from "framer-motion";
-import { Mic, MicOff, Bot, Bug, ArrowRight, ChevronDown, Brain, Eye, Wifi, WifiOff } from "lucide-react";
+import { Mic, MicOff, Bot, Bug, ArrowRight, ChevronDown, Brain, Eye, Wifi, WifiOff, Route } from "lucide-react";
 import { useStore } from "@/store";
 import { Button } from "./ui/button";
 import { cn } from "@/lib/utils";
 import { useState, useEffect, useCallback } from "react";
 import { ollamaService } from "@/services/ollama";
 import { searxngService } from "@/services/searxng";
+import { toast } from "sonner";
+import { SupportButton } from "./SupportButton";
 
 interface HeaderProps {
   onToggleDebug?: () => void;
@@ -16,6 +18,10 @@ interface OllamaModel {
   name: string;
   size?: number;
   modified_at?: string;
+  details?: {
+    parameter_size?: string;
+    [key: string]: unknown;
+  };
 }
 
 export function Header({ onToggleDebug, showDebug }: HeaderProps) {
@@ -37,16 +43,20 @@ export function Header({ onToggleDebug, showDebug }: HeaderProps) {
   const [availableModels, setAvailableModels] = useState<OllamaModel[]>([]);
   const [showBrainDropdown, setShowBrainDropdown] = useState(false);
   const [showVisionDropdown, setShowVisionDropdown] = useState(false);
+  const [showRouterDropdown, setShowRouterDropdown] = useState(false);
   const [searxngStatus, setSearxngStatus] = useState<boolean>(false);
   
   // Fetch available models
   const fetchModels = useCallback(async () => {
     try {
+      console.log('[Header] Fetching models from:', settings.ollama_url);
       ollamaService.setBaseUrl(settings.ollama_url);
       const models = await ollamaService.listModels();
+      console.log('[Header] Models fetched:', models.length, models.map(m => m.name).join(', '));
       setAvailableModels(models);
     } catch (error) {
-      console.error("Failed to fetch models:", error);
+      console.error("[Header] Failed to fetch models:", error);
+      toast.error("Failed to fetch models from Ollama");
     }
   }, [settings.ollama_url]);
   
@@ -126,12 +136,13 @@ export function Header({ onToggleDebug, showDebug }: HeaderProps) {
     const handleClickOutside = () => {
       setShowBrainDropdown(false);
       setShowVisionDropdown(false);
+      setShowRouterDropdown(false);
     };
-    if (showBrainDropdown || showVisionDropdown) {
+    if (showBrainDropdown || showVisionDropdown || showRouterDropdown) {
       document.addEventListener('click', handleClickOutside);
       return () => document.removeEventListener('click', handleClickOutside);
     }
-  }, [showBrainDropdown, showVisionDropdown]);
+  }, [showBrainDropdown, showVisionDropdown, showRouterDropdown]);
 
   return (
     <header className="h-16 border-b border-border bg-card/50 backdrop-blur-sm flex items-center justify-between px-4 lg:px-6 relative z-50">
@@ -173,6 +184,11 @@ export function Header({ onToggleDebug, showDebug }: HeaderProps) {
               e.stopPropagation();
               setShowBrainDropdown(!showBrainDropdown);
               setShowVisionDropdown(false);
+              setShowRouterDropdown(false);
+              // Refresh models when opening dropdown
+              if (!showBrainDropdown) {
+                fetchModels();
+              }
             }}
             className="flex items-center gap-2 px-3 py-1.5 bg-muted/50 hover:bg-muted rounded-lg text-sm transition-colors"
           >
@@ -192,7 +208,20 @@ export function Header({ onToggleDebug, showDebug }: HeaderProps) {
                 className="absolute top-full left-0 mt-1 w-64 bg-popover border rounded-lg shadow-[0_8px_30px_rgb(0,0,0,0.4)] z-[9999] max-h-64 overflow-y-auto"
               >
                 <div className="p-2">
-                  <p className="text-xs text-muted-foreground px-2 py-1">Brain Model (Text)</p>
+                  <div className="flex items-center justify-between px-2 py-1">
+                    <p className="text-xs text-muted-foreground">Brain Model ({availableModels.length} found)</p>
+                    <button 
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        fetchModels();
+                        toast.success("Model list refreshed");
+                      }}
+                      className="text-xs text-primary hover:text-primary/80"
+                      title="Refresh model list"
+                    >
+                      Refresh
+                    </button>
+                  </div>
                   {availableModels.length === 0 ? (
                     <div className="px-2 py-2">
                       <p className="text-xs text-muted-foreground">No models found</p>
@@ -237,6 +266,7 @@ export function Header({ onToggleDebug, showDebug }: HeaderProps) {
               e.stopPropagation();
               setShowVisionDropdown(!showVisionDropdown);
               setShowBrainDropdown(false);
+              setShowRouterDropdown(false);
             }}
             className="flex items-center gap-2 px-3 py-1.5 bg-muted/50 hover:bg-muted rounded-lg text-sm transition-colors"
           >
@@ -302,6 +332,92 @@ export function Header({ onToggleDebug, showDebug }: HeaderProps) {
             )}
           </AnimatePresence>
         </div>
+
+        {/* Router Model Dropdown */}
+        <div className="relative">
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              setShowRouterDropdown(!showRouterDropdown);
+              setShowBrainDropdown(false);
+              setShowVisionDropdown(false);
+            }}
+            className="flex items-center gap-2 px-3 py-1.5 bg-muted/50 hover:bg-muted rounded-lg text-sm transition-colors"
+            title="Smart Router - lightweight model for intent classification"
+          >
+            <Route className="w-4 h-4 text-amber-400" />
+            <span className="max-w-[120px] truncate">
+              {settings.router_model || 'Select router'}
+            </span>
+            <ChevronDown className="w-3 h-3 text-muted-foreground" />
+          </button>
+          
+          <AnimatePresence>
+            {showRouterDropdown && (
+              <motion.div
+                initial={{ opacity: 0, y: -10 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -10 }}
+                className="absolute top-full left-0 mt-1 w-64 bg-popover border rounded-lg shadow-[0_8px_30px_rgb(0,0,0,0.4)] z-[9999] max-h-64 overflow-y-auto"
+              >
+                <div className="p-2">
+                  <div className="flex items-center justify-between px-2 py-1">
+                    <p className="text-xs text-muted-foreground">Router Model (≤2B params)</p>
+                    <button 
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        fetchModels();
+                        toast.success("Model list refreshed");
+                      }}
+                      className="text-xs text-primary hover:text-primary/80"
+                      title="Refresh model list"
+                    >
+                      Refresh
+                    </button>
+                  </div>
+                  {(() => {
+                    // Show ALL models in router dropdown (user wants cloud models too)
+                    // Just sort small models first
+                    const sortedModels = [...availableModels].sort((a, b) => {
+                      const sizeA = a.size || 0;
+                      const sizeB = b.size || 0;
+                      return sizeA - sizeB; // Smallest first
+                    });
+                    
+                    return sortedModels.length === 0 ? (
+                      <p className="text-xs text-muted-foreground px-2 py-2">No models found. Install qwen3:0.6b.</p>
+                    ) : (
+                      sortedModels.map((model) => (
+                      <button
+                        key={model.name}
+                        onClick={() => {
+                          updateSettings({ router_model: model.name });
+                          setShowRouterDropdown(false);
+                        }}
+                        className={cn(
+                          "w-full text-left px-3 py-2 rounded text-sm transition-colors",
+                          settings.router_model === model.name
+                            ? "bg-amber-500 text-white"
+                            : "hover:bg-muted"
+                        )}
+                      >
+                        <div className="flex items-center justify-between">
+                          <span className="truncate">{model.name}</span>
+                          {model.size && (
+                            <span className="text-xs opacity-70">
+                              {(model.size / 1e9).toFixed(1)}GB
+                            </span>
+                          )}
+                        </div>
+                      </button>
+                    ))
+                  );
+                })()}
+                </div>
+              </motion.div>
+            )}
+          </AnimatePresence>
+        </div>
       </div>
 
       {/* Right: Status & Controls */}
@@ -356,6 +472,9 @@ export function Header({ onToggleDebug, showDebug }: HeaderProps) {
             </motion.div>
           )}
         </div>
+
+        {/* Support Button */}
+        <SupportButton />
 
         {/* Microphone Button with Hint */}
         <div className="relative">

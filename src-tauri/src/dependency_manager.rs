@@ -43,8 +43,8 @@ const REQUIRED_PACKAGES: &[&str] = &[
     "requests",
     "torch",
     "torchaudio",
-    "styletts2",
     "qwen-tts",
+    "kittentts",
 ];
 
 impl DependencyStatus {

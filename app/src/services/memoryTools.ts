@@ -22,11 +22,21 @@ export interface ToolCall {
   arguments: Record<string, any>;
 }
 
+export interface ConversationMessage {
+  role: "user" | "assistant";
+  content: string;
+  type?: string;
+  timestamp: string;
+  metadata?: Record<string, any>;
+}
+
 export type ReadOnlyToolName =
   | "list_memories"
   | "read_memory"
   | "search_memories"
-  | "get_memory_info";
+  | "get_memory_info"
+  | "get_conversation_history"
+  | "search_conversation_history";
 
 export interface ToolResult {
   success: boolean;
@@ -63,10 +73,18 @@ class MemoryToolsService {
   }
 
   /**
-   * List all memory files
+   * List all memory files for a persona
+   * @param personaId The persona identifier
+   * @param folder 'user_files', 'conversations', or undefined for both
    */
-  async listMemories(): Promise<MemoryFile[]> {
-    const response = await fetch(`${this.baseUrl}/memory/list`);
+  async listMemories(personaId: string = "default", folder?: "user_files" | "conversations" | "all"): Promise<MemoryFile[]> {
+    const url = new URL(`${this.baseUrl}/memory/list`, window.location.origin);
+    if (folder) {
+      url.searchParams.append("folder", folder);
+    }
+    url.searchParams.append("persona_id", personaId);
+    
+    const response = await fetch(url.toString());
     if (!response.ok) {
       throw new Error("Failed to list memories");
     }
@@ -76,12 +94,14 @@ class MemoryToolsService {
 
   /**
    * Read a specific memory file
+   * @param filename Name of file (can include folder prefix like "user_files/" or "conversations/")
+   * @param personaId The persona identifier
    */
-  async readMemory(filename: string): Promise<string> {
+  async readMemory(filename: string, personaId: string = "default"): Promise<string> {
     const response = await fetch(`${this.baseUrl}/memory/read`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ filename }),
+      body: JSON.stringify({ filename, persona_id: personaId }),
     });
     if (!response.ok) {
       const error = await response.json();
@@ -93,12 +113,15 @@ class MemoryToolsService {
 
   /**
    * Search memories for keywords
+   * @param query Search query
+   * @param personaId The persona identifier
+   * @param folder 'user_files', 'conversations', or undefined for both
    */
-  async searchMemories(query: string): Promise<MemorySearchMatch[]> {
+  async searchMemories(query: string, personaId: string = "default", folder?: "user_files" | "conversations" | "all"): Promise<MemorySearchMatch[]> {
     const response = await fetch(`${this.baseUrl}/memory/search`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ query }),
+      body: JSON.stringify({ query, folder, persona_id: personaId }),
     });
     if (!response.ok) {
       throw new Error("Failed to search memories");
@@ -110,12 +133,22 @@ class MemoryToolsService {
   /**
    * Write to a memory file
    * REQUIRES user confirmation
+   * @param filename Name of file
+   * @param content Content to write
+   * @param personaId The persona identifier
+   * @param folder 'user_files' (default) or 'conversations'
    */
-  async writeMemory(filename: string, content: string, confirm: boolean = false): Promise<ToolResult> {
+  async writeMemory(
+    filename: string, 
+    content: string, 
+    personaId: string = "default",
+    confirm: boolean = false,
+    folder: "user_files" | "conversations" = "user_files"
+  ): Promise<ToolResult> {
     const response = await fetch(`${this.baseUrl}/memory/write`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ filename, content, confirm }),
+      body: JSON.stringify({ filename, content, confirm, folder, persona_id: personaId }),
     });
     const data = await response.json();
     return {
@@ -127,11 +160,99 @@ class MemoryToolsService {
   /**
    * Delete a memory file
    * REQUIRES user confirmation
+   * @param filename Name of file
+   * @param personaId The persona identifier
    */
-  async deleteMemory(filename: string, confirm: boolean = false): Promise<ToolResult> {
-    const response = await fetch(`${this.baseUrl}/memory/delete?filename=${encodeURIComponent(filename)}&confirm=${confirm}`, {
+  async deleteMemory(filename: string, personaId: string = "default", confirm: boolean = false): Promise<ToolResult> {
+    const response = await fetch(`${this.baseUrl}/memory/delete?filename=${encodeURIComponent(filename)}&confirm=${confirm}&persona_id=${encodeURIComponent(personaId)}`, {
       method: "DELETE",
     });
+    const data = await response.json();
+    return {
+      success: data.success,
+      message: data.message,
+    };
+  }
+
+  // =========================================================================
+  // CONVERSATION HISTORY API
+  // =========================================================================
+
+  /**
+   * Save a conversation message to the persona's history
+   */
+  async saveConversationMessage(
+    personaId: string,
+    role: "user" | "assistant",
+    content: string,
+    messageType: string = "text",
+    metadata?: Record<string, any>
+  ): Promise<ToolResult> {
+    const response = await fetch(`${this.baseUrl}/memory/conversation/save`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        persona_id: personaId,
+        role,
+        content,
+        message_type: messageType,
+        metadata: {
+          ...metadata,
+          timestamp: new Date().toISOString(),
+        },
+      }),
+    });
+    const data = await response.json();
+    return {
+      success: data.success,
+      message: data.message,
+      data: data.data,
+    };
+  }
+
+  /**
+   * Get the full conversation history for a persona
+   */
+  async getConversationHistory(personaId: string, limit?: number): Promise<ConversationMessage[]> {
+    const url = new URL(`${this.baseUrl}/memory/conversation/history`, window.location.origin);
+    url.searchParams.append("persona_id", personaId);
+    if (limit) {
+      url.searchParams.append("limit", limit.toString());
+    }
+    
+    const response = await fetch(url.toString());
+    if (!response.ok) {
+      throw new Error("Failed to get conversation history");
+    }
+    const data = await response.json();
+    return data.history || [];
+  }
+
+  /**
+   * Search conversation history for specific content
+   */
+  async searchConversationHistory(personaId: string, query: string): Promise<ConversationMessage[]> {
+    const response = await fetch(`${this.baseUrl}/memory/conversation/search`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ persona_id: personaId, query }),
+    });
+    if (!response.ok) {
+      throw new Error("Failed to search conversation history");
+    }
+    const data = await response.json();
+    return data.matches || [];
+  }
+
+  /**
+   * Clear all conversation history for a persona
+   */
+  async clearConversationHistory(personaId: string, confirm: boolean = false): Promise<ToolResult> {
+    const url = new URL(`${this.baseUrl}/memory/conversation/clear`, window.location.origin);
+    url.searchParams.append("persona_id", personaId);
+    url.searchParams.append("confirm", confirm.toString());
+    
+    const response = await fetch(url.toString(), { method: "DELETE" });
     const data = await response.json();
     return {
       success: data.success,
@@ -158,7 +279,7 @@ class MemoryToolsService {
     return [
       {
         name: "list_memories",
-        description: "List all files in the memory folder",
+        description: "List all files in the memory folder for the current persona",
         args: "{}",
       },
       {
@@ -176,6 +297,16 @@ class MemoryToolsService {
         description: "Get metadata for one memory file by filename",
         args: '{"filename":"example.txt"}',
       },
+      {
+        name: "get_conversation_history",
+        description: "Get the full conversation history with the user",
+        args: '{"limit":50}',
+      },
+      {
+        name: "search_conversation_history",
+        description: "Search conversation history for specific content",
+        args: '{"query":"keyword"}',
+      },
     ];
   }
 
@@ -183,9 +314,9 @@ class MemoryToolsService {
    * Execute ONLY read-only tool calls.
    * Any write/delete/unknown tool is rejected.
    */
-  async executeReadOnlyToolCall(toolCall: ToolCall): Promise<ToolResult> {
+  async executeReadOnlyToolCall(toolCall: ToolCall, personaId: string = "default"): Promise<ToolResult> {
     const { name, arguments: args } = toolCall;
-    if (!["list_memories", "read_memory", "search_memories", "get_memory_info"].includes(name)) {
+    if (!["list_memories", "read_memory", "search_memories", "get_memory_info", "get_conversation_history", "search_conversation_history"].includes(name)) {
       return {
         success: false,
         message: `Tool not allowed in read-only mode: ${name}`,
@@ -195,7 +326,7 @@ class MemoryToolsService {
     try {
       switch (name as ReadOnlyToolName) {
         case "list_memories": {
-          const files = await this.listMemories();
+          const files = await this.listMemories(personaId);
           return {
             success: true,
             data: files,
@@ -203,7 +334,7 @@ class MemoryToolsService {
           };
         }
         case "read_memory": {
-          const content = await this.readMemory(args.filename);
+          const content = await this.readMemory(args.filename, personaId);
           return {
             success: true,
             data: { filename: args.filename, content },
@@ -211,7 +342,7 @@ class MemoryToolsService {
           };
         }
         case "search_memories": {
-          const matches = await this.searchMemories(args.query);
+          const matches = await this.searchMemories(args.query, personaId);
           return {
             success: true,
             data: matches,
@@ -219,7 +350,7 @@ class MemoryToolsService {
           };
         }
         case "get_memory_info": {
-          const allFiles = await this.listMemories();
+          const allFiles = await this.listMemories(personaId);
           const file = allFiles.find((f) => f.name === args.filename);
           if (file) {
             return {
@@ -231,6 +362,22 @@ class MemoryToolsService {
           return {
             success: false,
             message: `File not found: ${args.filename}`,
+          };
+        }
+        case "get_conversation_history": {
+          const history = await this.getConversationHistory(personaId, args.limit);
+          return {
+            success: true,
+            data: history,
+            message: `Retrieved ${history.length} conversation messages`,
+          };
+        }
+        case "search_conversation_history": {
+          const matches = await this.searchConversationHistory(personaId, args.query);
+          return {
+            success: true,
+            data: matches,
+            message: `Found ${matches.length} matching messages`,
           };
         }
       }
@@ -245,13 +392,13 @@ class MemoryToolsService {
   /**
    * Execute a tool call from the agent
    */
-  async executeToolCall(toolCall: ToolCall): Promise<ToolResult> {
+  async executeToolCall(toolCall: ToolCall, personaId: string = "default"): Promise<ToolResult> {
     const { name, arguments: args } = toolCall;
 
     try {
       switch (name) {
         case "list_memories":
-          const files = await this.listMemories();
+          const files = await this.listMemories(personaId);
           return {
             success: true,
             data: files,
@@ -259,7 +406,7 @@ class MemoryToolsService {
           };
 
         case "read_memory":
-          const content = await this.readMemory(args.filename);
+          const content = await this.readMemory(args.filename, personaId);
           return {
             success: true,
             data: { filename: args.filename, content },
@@ -267,7 +414,7 @@ class MemoryToolsService {
           };
 
         case "search_memories":
-          const matches = await this.searchMemories(args.query);
+          const matches = await this.searchMemories(args.query, personaId);
           return {
             success: true,
             data: matches,
@@ -275,8 +422,7 @@ class MemoryToolsService {
           };
 
         case "get_memory_info":
-          // This is a simplified version - backend doesn't have a separate endpoint
-          const allFiles = await this.listMemories();
+          const allFiles = await this.listMemories(personaId);
           const file = allFiles.find((f) => f.name === args.filename);
           if (file) {
             return {
@@ -291,6 +437,22 @@ class MemoryToolsService {
             };
           }
 
+        case "get_conversation_history":
+          const history = await this.getConversationHistory(personaId, args.limit);
+          return {
+            success: true,
+            data: history,
+            message: `Retrieved ${history.length} conversation messages`,
+          };
+
+        case "search_conversation_history":
+          const convMatches = await this.searchConversationHistory(personaId, args.query);
+          return {
+            success: true,
+            data: convMatches,
+            message: `Found ${convMatches.length} matching messages`,
+          };
+
         case "write_memory":
           if (!args.confirm) {
             return {
@@ -298,7 +460,7 @@ class MemoryToolsService {
               message: "Write operation requires user confirmation",
             };
           }
-          return await this.writeMemory(args.filename, args.content, true);
+          return await this.writeMemory(args.filename, args.content, personaId, true);
 
         default:
           return {

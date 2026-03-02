@@ -197,12 +197,11 @@ export function useSubscriptionCheck() {
       const state = await checkSubscription();
       setSubState(state);
       
-      // Show dialog if:
-      // - Trial just expired (show nag)
-      // - First launch (trial started, show info)
-      if (state.showNag || state.status === 'trial_active') {
-        setShowDialog(true);
-      }
+      // Auto-show disabled - replaced with Support button in UI
+      // Dialog still available via menu for users who want to support
+      // if (state.showNag || state.status === 'trial_active') {
+      //   setShowDialog(true);
+      // }
       
       setChecked(true);
     };

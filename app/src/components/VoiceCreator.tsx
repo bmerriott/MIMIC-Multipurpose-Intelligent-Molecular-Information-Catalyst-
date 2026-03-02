@@ -108,6 +108,7 @@ interface VoiceParams {
   qwen3Size: Qwen3ModelSize;
   extractionModelSize: "0.6B" | "1.7B";
   useFlashAttention: boolean;
+  kittenVoice: string;
   
   // Reference
   hasReference: boolean;
@@ -147,10 +148,11 @@ interface VoiceParams {
 }
 
 const defaultParams: VoiceParams = {
-  engine: "browser",
+  engine: "kitten",
   qwen3Size: "0.6B",
   extractionModelSize: "1.7B",
   useFlashAttention: true,
+  kittenVoice: "Bella",
   hasReference: false,
   referenceAudio: null,
   referenceText: "",
@@ -261,15 +263,16 @@ export function VoiceCreator() {
     }
   }, [selectedPersonaId, getPersonaVoiceTuning]);
 
-  // Sync TTS engine settings from global settings on mount
+  // Sync TTS engine settings from global settings on mount AND when settings change
   useEffect(() => {
     setParams(p => ({
       ...p,
-      engine: settings.tts_engine || "browser",
+      engine: settings.tts_engine === 'off' ? 'kitten' : (settings.tts_engine || 'kitten'),
       extractionModelSize: settings.qwen3_model_size || "0.6B",
       useFlashAttention: settings.qwen3_flash_attention !== false,
+      kittenVoice: settings.kitten_voice || "Bella",
     }));
-  }, []);
+  }, [settings.tts_engine, settings.qwen3_model_size, settings.qwen3_flash_attention, settings.kitten_voice]);
 
 
   
@@ -1163,20 +1166,7 @@ export function VoiceCreator() {
           
           <div className="grid grid-cols-2 gap-3">
             <button
-              onClick={() => setParams(p => ({ ...p, engine: "browser" }))}
-              className={`p-3 rounded-lg border text-left transition-all ${
-                params.engine === "browser"
-                  ? "border-primary bg-primary/10"
-                  : "border-border hover:border-primary/50"
-              }`}
-            >
-              <div className="font-medium text-sm">Browser TTS</div>
-              <div className="text-xs text-muted-foreground">System voice, no setup</div>
-              <div className="text-xs mt-1 text-green-400">Always Available</div>
-            </button>
-            
-            <button
-              onClick={() => setParams(p => ({ ...p, engine: "qwen3" }))}
+              onClick={() => updateParam("engine", "qwen3")}
               className={`p-3 rounded-lg border text-left transition-all ${
                 params.engine === "qwen3"
                   ? "border-primary bg-primary/10"
@@ -1190,6 +1180,19 @@ export function VoiceCreator() {
                   {engineStatus.qwen3_available ? 'Available' : 'Not installed'}
                 </div>
               )}
+            </button>
+            
+            <button
+              onClick={() => updateParam("engine", "kitten")}
+              className={`p-3 rounded-lg border text-left transition-all ${
+                params.engine === "kitten"
+                  ? "border-primary bg-primary/10"
+                  : "border-border hover:border-primary/50"
+              }`}
+            >
+              <div className="font-medium text-sm">KittenTTS</div>
+              <div className="text-xs text-muted-foreground">Local AI voice</div>
+              <div className="text-xs mt-1 text-green-400">8 Voices</div>
             </button>
           </div>
           
@@ -1251,6 +1254,38 @@ export function VoiceCreator() {
               </div>
             </div>
           )}
+          
+          {params.engine === "kitten" && (
+            <div className="space-y-3 pt-3 border-t">
+              <div className="flex items-center justify-between">
+                <Label className="text-xs">Voice</Label>
+                <Select 
+                  value={params.kittenVoice || "Bella"} 
+                  onValueChange={(v) => {
+                    setParams(p => ({ ...p, kittenVoice: v }));
+                    updateSettings({ kitten_voice: v });
+                  }}
+                >
+                  <SelectTrigger className="w-40">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="Bella">Bella (Female)</SelectItem>
+                    <SelectItem value="Jasper">Jasper (Male)</SelectItem>
+                    <SelectItem value="Luna">Luna (Female)</SelectItem>
+                    <SelectItem value="Bruno">Bruno (Male)</SelectItem>
+                    <SelectItem value="Rosie">Rosie (Female)</SelectItem>
+                    <SelectItem value="Hugo">Hugo (Male)</SelectItem>
+                    <SelectItem value="Kiki">Kiki (Female)</SelectItem>
+                    <SelectItem value="Leo">Leo (Male)</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <p className="text-xs text-muted-foreground">
+                Select from 8 available voices on KittenTTS cloud service.
+              </p>
+            </div>
+          )}
         </div>
 
         {/* Reference Audio */}
@@ -1259,7 +1294,7 @@ export function VoiceCreator() {
             <Mic className="w-4 h-4 text-amber-400" />
             Reference Audio
             {params.engine === "qwen3" && <span className="text-amber-400 text-xs">(Required)</span>}
-            {params.engine === "browser" && <span className="text-muted-foreground text-xs">(Not used)</span>}
+            
           </Label>
           
           <div className={`flex items-center gap-2 text-xs px-3 py-2 rounded ${puterAvailable ? 'text-green-400 bg-green-400/10' : 'text-amber-400 bg-amber-400/10'}`}>
@@ -1444,7 +1479,7 @@ export function VoiceCreator() {
           <p className="text-xs text-muted-foreground">
             {params.engine === "qwen3" 
               ? "Qwen3 requires reference audio to create a voice profile. The reference text helps improve quality."
-              : "Browser TTS uses your system's built-in voice. No reference audio needed, but no voice cloning available."
+              : "KittenTTS provides 8 built-in AI voices. No reference audio needed for voice generation."
             }
           </p>
         </div>
@@ -1868,7 +1903,7 @@ export function VoiceCreator() {
         <div className="flex items-start gap-2 text-sm text-muted-foreground bg-muted p-3 rounded-lg">
           <Info className="w-4 h-4 mt-0.5 flex-shrink-0" />
           <ul className="list-disc list-inside space-y-1">
-            <li>Browser TTS is always available and requires no setup</li>
+            <li>KittenTTS is always available and provides 8 high-quality AI voices</li>
             <li>Qwen3 produces higher quality but requires reference audio and more VRAM</li>
             <li>Use 0.6B model with Flash Attention for lower memory usage (~3GB VRAM)</li>
             <li>All generated audio is watermarked for identification</li>

@@ -17,7 +17,7 @@ from dataclasses import dataclass, asdict
 class VoiceProfile:
     """Voice profile metadata and paths"""
     persona_id: str
-    engine: str  # "qwen3" | "styletts2"
+    engine: str  # "qwen3" or "kitten"
     model_size: str  # "0.6B" | "1.7B" for qwen3
     embedding_path: str
     reference_audio_path: str
@@ -131,8 +131,8 @@ class VoiceProfileManager:
                 )
                 torch.save(embedding, embedding_path)
             else:
-                # For StyleTTS2 or fallback, save reference audio as "embedding"
-                # (StyleTTS2 uses reference audio directly)
+                # For KittenTTS or fallback, save reference audio as "embedding"
+                # (KittenTTS can use reference audio directly)
                 torch.save({
                     'type': 'reference_audio',
                     'audio': reference_audio,

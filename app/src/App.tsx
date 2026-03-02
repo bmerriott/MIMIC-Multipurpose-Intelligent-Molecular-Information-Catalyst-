@@ -6,7 +6,7 @@ import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { Shield, Sparkles, FileText, ExternalLink, Check } from "lucide-react";
+import { Shield, Sparkles, FileText, ExternalLink } from "lucide-react";
 
 import { Sidebar } from "./components/Sidebar";
 import { AvatarScene } from "./components/AvatarScene";
@@ -30,7 +30,6 @@ import { initializeDefaultAssets } from "@/services/defaultAssets";
 // First-launch consent state
 interface FirstLaunchConsent {
   aiDisclosure: boolean;
-  voiceConsent: boolean;
   noMisuse: boolean;
   watermarkAck: boolean;
 }
@@ -50,7 +49,6 @@ function App() {
   const [showFirstLaunchDialog, setShowFirstLaunchDialog] = useState(false);
   const [firstLaunchConsent, setFirstLaunchConsent] = useState<FirstLaunchConsent>({
     aiDisclosure: false,
-    voiceConsent: false,
     noMisuse: false,
     watermarkAck: false,
   });
@@ -66,7 +64,6 @@ function App() {
   const { showDialog, setShowDialog } = useSubscriptionCheck();
 
   const allConsentsGiven = firstLaunchConsent.aiDisclosure && 
-                           firstLaunchConsent.voiceConsent && 
                            firstLaunchConsent.noMisuse && 
                            firstLaunchConsent.watermarkAck;
 
@@ -452,10 +449,10 @@ function App() {
                     <div className="flex items-start gap-2">
                       <Sparkles className="w-5 h-5 text-primary flex-shrink-0 mt-0.5" />
                       <div>
-                        <h4 className="font-semibold text-sm">AI-Generated Content</h4>
+                        <h4 className="font-semibold text-sm">AI-Generated Content & Voices</h4>
                         <p className="text-xs text-muted-foreground">
-                          Mimic AI uses artificial intelligence to generate responses and synthesize voices. 
-                          All AI-generated content should be treated as synthetic.
+                          Mimic AI uses artificial intelligence to generate responses and synthesize voices using 
+                          Qwen3 TTS and KittenTTS. All AI-generated content and voices are synthetic and unique.
                         </p>
                       </div>
                     </div>
@@ -465,29 +462,7 @@ function App() {
                         onCheckedChange={(checked) => setFirstLaunchConsent(prev => ({ ...prev, aiDisclosure: checked === true }))}
                         className="w-5 h-5 border-2 border-primary data-[state=checked]:bg-primary data-[state=checked]:border-primary"
                       />
-                      <span className="text-sm">I understand that Mimic AI generates synthetic content</span>
-                    </label>
-                  </div>
-
-                  {/* Synthetic Voice Notice */}
-                  <div className="p-3 bg-green-500/10 border border-green-500/30 rounded-lg space-y-2">
-                    <div className="flex items-start gap-2">
-                      <Check className="w-5 h-5 text-green-400 flex-shrink-0 mt-0.5" />
-                      <div>
-                        <h4 className="font-semibold text-sm text-green-400">Synthetic Voice Creation</h4>
-                        <p className="text-xs text-muted-foreground">
-                          Voices are created using AI synthesis with adjustable parameters. All voices are 
-                          artificially generated and unique.
-                        </p>
-                      </div>
-                    </div>
-                    <label className="flex items-start gap-3 cursor-pointer ml-7 p-2 rounded hover:bg-white/5 transition-colors">
-                      <Checkbox 
-                        checked={firstLaunchConsent.voiceConsent}
-                        onCheckedChange={(checked) => setFirstLaunchConsent(prev => ({ ...prev, voiceConsent: checked === true }))}
-                        className="w-5 h-5 border-2 border-green-400 data-[state=checked]:bg-green-400 data-[state=checked]:border-green-400"
-                      />
-                      <span className="text-sm">I understand that voices are synthetically generated</span>
+                      <span className="text-sm">I understand that Mimic AI generates synthetic content and voices</span>
                     </label>
                   </div>
 

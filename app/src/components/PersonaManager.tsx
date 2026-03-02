@@ -21,6 +21,8 @@ import {
 } from "lucide-react";
 import { useStore } from "@/store";
 import type { Persona, AvatarConfig } from "@/types";
+// @ts-ignore - Used in async function but TypeScript doesn't detect it
+import { memoryToolsService } from "@/services/memoryTools";
 import { Button } from "./ui/button";
 import { Input } from "./ui/input";
 import { Label } from "./ui/label";
@@ -45,17 +47,23 @@ import {
   type VrmaEntry
 } from "@/services/vrmaLibrary";
 
-const VOICES = [
-  { value: "vivian", label: "Vivian (Chinese Female)" },
-  { value: "serena", label: "Serena (Chinese Female)" },
-  { value: "uncle_fu", label: "Uncle Fu (Chinese Male)" },
-  { value: "dylan", label: "Dylan (Beijing Male)" },
-  { value: "eric", label: "Eric (Sichuan Male)" },
-  { value: "ryan", label: "Ryan (English Male)" },
-  { value: "aiden", label: "Aiden (American Male)" },
-  { value: "ono_anna", label: "Ono Anna (Japanese Female)" },
-  { value: "sohee", label: "Sohee (Korean Female)" },
-];
+// KittenTTS Voices - 8 selectable AI voices
+const KITTEN_VOICES = [
+  { value: "Bella", label: "Bella (Female)", gender: "female" },
+  { value: "Luna", label: "Luna (Female)", gender: "female" },
+  { value: "Rosie", label: "Rosie (Female)", gender: "female" },
+  { value: "Kiki", label: "Kiki (Female)", gender: "female" },
+  { value: "Jasper", label: "Jasper (Male)", gender: "male" },
+  { value: "Bruno", label: "Bruno (Male)", gender: "male" },
+  { value: "Hugo", label: "Hugo (Male)", gender: "male" },
+  { value: "Leo", label: "Leo (Male)", gender: "male" },
+] as const;
+
+// Voice groups for organized display
+const VOICE_GROUPS = {
+  female: KITTEN_VOICES.filter(v => v.gender === "female"),
+  male: KITTEN_VOICES.filter(v => v.gender === "male"),
+};
 
 interface VrmLibrarySelectorProps {
   selectedVrmId?: string;
@@ -545,7 +553,7 @@ function PersonaForm({ persona, onSave, onCancel }: PersonaFormProps) {
     personality_prompt: persona?.personality_prompt || "",
     wake_words: wakeWordsStr,
     response_words: responseWordsStr,
-    voice_id: persona?.voice_id || "aiden",
+    voice_id: persona?.voice_id || "Bella",
     avatar_config: persona?.avatar_config || {
       type: "abstract",
       primary_color: "#6366f1",
@@ -688,11 +696,11 @@ function PersonaForm({ persona, onSave, onCancel }: PersonaFormProps) {
 
         <div className="space-y-2">
           <div className="flex items-center justify-between">
-            <Label>Voice Selection</Label>
+            <Label>Voice Selection (KittenTTS)</Label>
             {hasCreatedVoice && (
               <span className="text-xs bg-green-500/20 text-green-400 px-2 py-0.5 rounded-full flex items-center gap-1">
                 <Volume2 className="w-3 h-3" />
-                Created voice available
+                Custom voice available
               </span>
             )}
           </div>
@@ -701,15 +709,28 @@ function PersonaForm({ persona, onSave, onCancel }: PersonaFormProps) {
             onValueChange={(value) => setFormData({ ...formData, voice_id: value })}
           >
             <SelectTrigger>
-              <SelectValue placeholder="Select a voice" />
+              <SelectValue placeholder="Select a KittenTTS voice" />
             </SelectTrigger>
-            <SelectContent>
+            <SelectContent className="max-h-[300px]">
               {hasCreatedVoice && (
-                <SelectItem value="created">
-                  🎤 Created Voice (Custom)
+                <SelectItem value="created" className="font-semibold text-primary">
+                  🎤 Custom Created Voice (Qwen3-TTS)
                 </SelectItem>
               )}
-              {VOICES.map((voice) => (
+              
+              <div className="px-2 py-1 text-xs font-semibold text-muted-foreground bg-muted">
+                Female Voices
+              </div>
+              {VOICE_GROUPS.female.map((voice) => (
+                <SelectItem key={voice.value} value={voice.value}>
+                  {voice.label}
+                </SelectItem>
+              ))}
+              
+              <div className="px-2 py-1 text-xs font-semibold text-muted-foreground bg-muted mt-1">
+                Male Voices
+              </div>
+              {VOICE_GROUPS.male.map((voice) => (
                 <SelectItem key={voice.value} value={voice.value}>
                   {voice.label}
                 </SelectItem>
@@ -717,7 +738,7 @@ function PersonaForm({ persona, onSave, onCancel }: PersonaFormProps) {
             </SelectContent>
           </Select>
           <p className="text-xs text-muted-foreground">
-            Select a preset voice or use the Voice Studio to create a custom voice
+            Select a KittenTTS AI voice. For custom voice cloning, use the Voice Studio with Qwen3-TTS.
           </p>
         </div>
 
@@ -924,7 +945,7 @@ export function PersonaManager() {
       personality_prompt: data.personality_prompt || "",
       wake_words: data.wake_words || ["Mimic"],
       response_words: data.response_words || ["Yes?", "I'm listening"],
-      voice_id: data.voice_id || "aiden",
+      voice_id: data.voice_id || "Bella",
       voice_create: null,
       avatar_config: data.avatar_config as AvatarConfig,
       memory: {
@@ -1046,7 +1067,7 @@ export function PersonaManager() {
                       </span>
                       <span className="flex items-center gap-1">
                         <Sparkles className="w-3 h-3" />
-                        {persona.voice_create ? "Custom Created Voice" : VOICES.find((v) => v.value === persona.voice_id)?.label.split(" (")[0]}
+                        {persona.voice_create ? "Custom Voice" : KITTEN_VOICES.find((v) => v.value === persona.voice_id)?.label || persona.voice_id}
                       </span>
                     </div>
                   </div>

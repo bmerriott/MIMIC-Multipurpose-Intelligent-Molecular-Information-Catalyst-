@@ -155,7 +155,7 @@ export function MemoryManager({ isOpen, onClose }: MemoryManagerProps) {
       return;
     }
     try {
-      const result = await memoryToolsService.writeMemory(newFileName, newFileContent, true);
+      const result = await memoryToolsService.writeMemory(newFileName, newFileContent, "default", true);
       if (result.success) {
         toast.success("File saved", { description: result.message });
         setShowNewFileDialog(false);
@@ -173,7 +173,7 @@ export function MemoryManager({ isOpen, onClose }: MemoryManagerProps) {
   const handleDeleteFile = async () => {
     if (!deleteConfirmFile) return;
     try {
-      const result = await memoryToolsService.deleteMemory(deleteConfirmFile, true);
+      const result = await memoryToolsService.deleteMemory(deleteConfirmFile, "default", true);
       if (result.success) {
         toast.success("File deleted", { description: result.message });
         setDeleteConfirmFile(null);
@@ -193,7 +193,7 @@ export function MemoryManager({ isOpen, onClose }: MemoryManagerProps) {
   const handleDeleteAllFiles = async () => {
     try {
       setIsLoading(true);
-      await Promise.all(files.map(file => memoryToolsService.deleteMemory(file.name, true)));
+      await Promise.all(files.map(file => memoryToolsService.deleteMemory(file.name, "default", true)));
       toast.success(`Deleted ${files.length} memory files`);
       setFiles([]);
       setSelectedFile(null);
@@ -283,14 +283,18 @@ export function MemoryManager({ isOpen, onClose }: MemoryManagerProps) {
         </DialogHeader>
 
         <Tabs value={selectedTab} onValueChange={setSelectedTab} className="flex-1 flex flex-col min-h-0">
-          <TabsList className="grid w-full grid-cols-2">
+          <TabsList className="grid w-full grid-cols-3">
             <TabsTrigger value="files" className="flex items-center gap-2">
               <FileText className="w-4 h-4" />
               Memory Files ({files.length})
             </TabsTrigger>
             <TabsTrigger value="conversations" className="flex items-center gap-2">
               <Brain className="w-4 h-4" />
-              Conversation Memories ({allMemories.length})
+              AI Memories ({currentPersona?.memory?.short_term?.length || 0})
+            </TabsTrigger>
+            <TabsTrigger value="history" className="flex items-center gap-2">
+              <BrainCircuit className="w-4 h-4" />
+              Full History ({allMemories.length})
             </TabsTrigger>
           </TabsList>
           
@@ -422,7 +426,86 @@ export function MemoryManager({ isOpen, onClose }: MemoryManagerProps) {
           </div>
           </TabsContent>
           
+          {/* AI Memories Tab - Shows only current persona memories */}
           <TabsContent value="conversations" className="flex-1 flex flex-col min-h-0 mt-4">
+            {/* Current Persona Display (No selector) */}
+            <div className="mb-3 p-2 bg-muted/50 rounded-lg">
+              <span className="text-sm font-medium">Showing memories for: </span>
+              <span className="text-sm text-primary">{currentPersona?.name || "Current Persona"}</span>
+            </div>
+            
+            {/* Summary Section - Always show for current persona */}
+            {currentPersona?.memory?.summary && (
+              <div className="mb-4 p-3 bg-muted rounded-lg">
+                <h4 className="text-sm font-semibold mb-1">Conversation Summary</h4>
+                <p className="text-sm text-muted-foreground">{currentPersona.memory.summary}</p>
+              </div>
+            )}
+            
+            {/* Header with Delete All */}
+            <div className="flex items-center justify-between mb-2">
+              <span className="text-xs text-muted-foreground">
+                {currentPersona?.memory?.short_term?.length || 0} memories for {currentPersona?.name || "current persona"}
+              </span>
+              {(currentPersona?.memory?.short_term?.length || 0) > 0 && (
+                <Button 
+                  variant="ghost" 
+                  size="sm"
+                  className="text-destructive hover:text-destructive hover:bg-destructive/10"
+                  onClick={() => setDeleteAllConfirm("conversations")}
+                >
+                  <Trash2 className="w-4 h-4 mr-1" />
+                  Delete All Memories
+                </Button>
+              )}
+            </div>
+            
+            {/* Memory List - Current Persona Only */}
+            <div className="flex-1 overflow-y-auto border rounded-lg p-2">
+              {(currentPersona?.memory?.short_term?.length || 0) === 0 ? (
+                <p className="text-center text-muted-foreground text-sm py-8">
+                  No conversation memories found for {currentPersona?.name || "current persona"}.
+                  <br />Enable memory in settings to start building context.
+                </p>
+              ) : (
+                <div className="space-y-2">
+                  {currentPersona!.memory!.short_term.map((memory: any, index: number) => (
+                    <div key={`${currentPersona!.id}-${index}`} className="p-3 bg-muted rounded-lg text-sm group">
+                      <div className="flex items-center justify-between mb-1">
+                        <span className="font-medium text-xs text-primary">{currentPersona!.name}</span>
+                        <div className="flex items-center gap-2">
+                          <span className="text-xs text-muted-foreground">
+                            {new Date(memory.timestamp).toLocaleString()}
+                          </span>
+                          <button
+                            onClick={() => setDeleteMemoryConfirm({
+                              personaId: currentPersona!.id,
+                              index: index,
+                              content: memory.content.slice(0, 50) + (memory.content.length > 50 ? "..." : ""),
+                            })}
+                            className="opacity-0 group-hover:opacity-100 p-1 hover:bg-destructive/10 rounded text-destructive transition-opacity"
+                            title="Delete this memory"
+                          >
+                            <X className="w-3 h-3" />
+                          </button>
+                        </div>
+                      </div>
+                      <p className="text-muted-foreground line-clamp-3">{memory.content}</p>
+                      {memory.importance > 0.8 && (
+                        <span className="inline-flex items-center gap-1 mt-1 text-xs text-amber-500">
+                          <AlertCircle className="w-3 h-3" />
+                          High importance
+                        </span>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </TabsContent>
+
+          {/* Full History Tab - Shows all personas with selector */}
+          <TabsContent value="history" className="flex-1 flex flex-col min-h-0 mt-4">
             {/* Persona Selector */}
             <div className="flex items-center gap-2 mb-3">
               <span className="text-sm font-medium">View memories for:</span>

@@ -8,10 +8,11 @@ interface FileAttachmentModalProps {
   isOpen: boolean;
   onClose: () => void;
   onAttach: (name: string, content: string) => void;
+  onAttachImage?: (base64: string) => void;
 }
 
-// Supported file types
-const SUPPORTED_TYPES: Record<string, string[]> = {
+// Supported document file types (text extraction)
+const SUPPORTED_DOC_TYPES: Record<string, string[]> = {
   'text/plain': ['.txt', '.md', '.log'],
   'text/markdown': ['.md', '.markdown'],
   'application/json': ['.json'],
@@ -40,21 +41,43 @@ const SUPPORTED_TYPES: Record<string, string[]> = {
   'application/x-httpd-php': ['.php'],
 };
 
-const MAX_FILE_SIZE = 5 * 1024 * 1024; // 5MB max
+// Supported image file types (vision analysis)
+const SUPPORTED_IMAGE_TYPES: Record<string, string[]> = {
+  'image/jpeg': ['.jpg', '.jpeg'],
+  'image/png': ['.png'],
+  'image/gif': ['.gif'],
+  'image/webp': ['.webp'],
+  'image/bmp': ['.bmp'],
+  'image/svg+xml': ['.svg'],
+};
+
+const MAX_FILE_SIZE = 5 * 1024 * 1024; // 5MB max for docs
+const MAX_IMAGE_SIZE = 10 * 1024 * 1024; // 10MB max for images
 const MAX_CHARS = 50000; // Max characters to extract
 
-export function FileAttachmentModal({ isOpen, onClose, onAttach }: FileAttachmentModalProps) {
+export function FileAttachmentModal({ isOpen, onClose, onAttach, onAttachImage }: FileAttachmentModalProps) {
   const [isDragging, setIsDragging] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  const isFileSupported = (file: File): boolean => {
+  const isImageFile = (file: File): boolean => {
     // Check by MIME type
-    if (SUPPORTED_TYPES[file.type]) return true;
-    
+    if (SUPPORTED_IMAGE_TYPES[file.type]) return true;
     // Check by extension
     const ext = '.' + file.name.split('.').pop()?.toLowerCase();
-    return Object.values(SUPPORTED_TYPES).flat().includes(ext);
+    return Object.values(SUPPORTED_IMAGE_TYPES).flat().includes(ext);
+  };
+
+  const isFileSupported = (file: File): boolean => {
+    // Check if it's an image
+    if (isImageFile(file)) return true;
+    
+    // Check by MIME type for docs
+    if (SUPPORTED_DOC_TYPES[file.type]) return true;
+    
+    // Check by extension for docs
+    const ext = '.' + file.name.split('.').pop()?.toLowerCase();
+    return Object.values(SUPPORTED_DOC_TYPES).flat().includes(ext);
   };
 
   const extractTextFromPDF = async (file: File): Promise<string> => {
@@ -80,7 +103,27 @@ export function FileAttachmentModal({ isOpen, onClose, onAttach }: FileAttachmen
     return extracted;
   };
 
-  const processFile = async (file: File): Promise<string> => {
+  const processImageFile = async (file: File): Promise<string> => {
+    if (file.size > MAX_IMAGE_SIZE) {
+      throw new Error(`Image too large. Max size is 10MB.`);
+    }
+
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        const base64 = (e.target?.result as string).split(',')[1];
+        if (base64) {
+          resolve(base64);
+        } else {
+          reject(new Error('Failed to read image'));
+        }
+      };
+      reader.onerror = () => reject(new Error('Failed to read image file'));
+      reader.readAsDataURL(file);
+    });
+  };
+
+  const processDocumentFile = async (file: File): Promise<string> => {
     if (file.size > MAX_FILE_SIZE) {
       throw new Error(`File too large. Max size is 5MB.`);
     }
@@ -121,7 +164,21 @@ export function FileAttachmentModal({ isOpen, onClose, onAttach }: FileAttachmen
 
     setIsProcessing(true);
     try {
-      const content = await processFile(file);
+      // Handle image files
+      if (isImageFile(file)) {
+        if (!onAttachImage) {
+          toast.error('Image attachment not available');
+          return;
+        }
+        const base64 = await processImageFile(file);
+        onAttachImage(base64);
+        toast.success(`Image attached: ${file.name}`);
+        onClose();
+        return;
+      }
+
+      // Handle document files
+      const content = await processDocumentFile(file);
       onAttach(file.name, content);
       toast.success(`File attached: ${file.name}`);
       onClose();
@@ -189,7 +246,7 @@ export function FileAttachmentModal({ isOpen, onClose, onAttach }: FileAttachmen
                 <div>
                   <h3 className="font-semibold">Attach File</h3>
                   <p className="text-xs text-muted-foreground">
-                    Upload a document for the AI to read
+                    Upload a document or image for the AI to analyze
                   </p>
                 </div>
               </div>
@@ -223,7 +280,7 @@ export function FileAttachmentModal({ isOpen, onClose, onAttach }: FileAttachmen
                       Drop file here or click to browse
                     </p>
                     <p className="text-xs text-muted-foreground">
-                      Max 5MB • Text extracted and attached
+                      Docs: Max 5MB • Images: Max 10MB
                     </p>
                   </>
                 )}
@@ -235,7 +292,7 @@ export function FileAttachmentModal({ isOpen, onClose, onAttach }: FileAttachmen
                 type="file"
                 onChange={handleFileSelect}
                 className="hidden"
-                accept=".txt,.md,.pdf,.docx,.doc,.json,.csv,.html,.css,.js,.ts,.py,.java,.cpp,.c,.h,.rs,.go,.rb,.php,.sql,.yaml,.yml,.xml"
+                accept=".txt,.md,.pdf,.docx,.doc,.json,.csv,.html,.css,.js,.ts,.py,.java,.cpp,.c,.h,.rs,.go,.rb,.php,.sql,.yaml,.yml,.xml,.jpg,.jpeg,.png,.gif,.webp,.bmp,.svg"
               />
 
               {/* Supported formats */}
@@ -246,6 +303,16 @@ export function FileAttachmentModal({ isOpen, onClose, onAttach }: FileAttachmen
                     <span
                       key={format}
                       className="px-2 py-0.5 bg-muted rounded text-[10px] text-muted-foreground"
+                    >
+                      {format}
+                    </span>
+                  ))}
+                </div>
+                <div className="flex flex-wrap gap-1 mt-1">
+                  {['JPG', 'PNG', 'GIF', 'WEBP', 'BMP', 'SVG'].map((format) => (
+                    <span
+                      key={format}
+                      className="px-2 py-0.5 bg-primary/10 rounded text-[10px] text-primary"
                     >
                       {format}
                     </span>

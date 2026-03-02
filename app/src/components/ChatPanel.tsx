@@ -9,17 +9,20 @@ import { Button } from "./ui/button";
 import { Textarea } from "./ui/textarea";
 import { toast } from "sonner";
 import { ollamaService } from "@/services/ollama";
-import { ttsService, type TTSEngine, type Qwen3ModelSize } from "@/services/tts";
+import { ttsService, type Qwen3ModelSize } from "@/services/tts";
 import { memoryService } from "@/services/memory";
 import { memoryToolsService, type ToolCall } from "@/services/memoryTools";
 import { searxngService } from "@/services/searxng";
 import { audioEffects } from "@/services/audioEffects";
 
-import { intentRouter } from "@/services/router";
+import { smartRouter, type RouteResult } from "@/services/smartRouter";
+import { buildAgentSystemPrompt, buildRouterGuidance } from "@/services/agentSystem";
+import { useToolConfirmation } from "@/hooks/useToolConfirmation";
 
 import { LiveVideoModal } from "./LiveVideoModal";
 import { FileAttachmentModal } from "./FileAttachmentModal";
 import { MemoryManager, MemoryWriteConfirmation } from "./MemoryManager";
+import { ToolConfirmationModal } from "./ToolConfirmationModal";
 
 export function ChatPanel() {
   const [input, setInput] = useState("");
@@ -40,6 +43,8 @@ export function ChatPanel() {
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const lastMessageCountRef = useRef(0);
+  const abortControllerRef = useRef<AbortController | null>(null);
+  const isMountedRef = useRef(true);
   
   // Cache for search results to avoid redundant searches in follow-up questions
   const searchCacheRef = useRef<{query: string, context: string, timestamp: number} | null>(null);
@@ -64,13 +69,19 @@ export function ChatPanel() {
     setIsGeneratingVoice,
     updatePersona,
     loadVoiceAudio,
-    addMemoryEntry,
     updateAppState,
     appState,
     isListening,
-    isGeneratingVoice,
     updateSettings,
   } = useStore();
+  
+  // Tool confirmation hook for write operations
+  const {
+    pendingConfirmation: toolConfirmation,
+    isExecuting: isToolExecuting,
+    confirmExecution: confirmToolExecution,
+    cancelExecution: cancelToolExecution,
+  } = useToolConfirmation();
   
   // Global audio player hook
   const globalPlayAudio = useStore(state => state.playAudio);
@@ -163,12 +174,17 @@ export function ChatPanel() {
     return () => clearTimeout(timer);
   }, [scrollToBottom]);
 
-  // Cleanup audio on unmount
+  // Cleanup on unmount - cancel ongoing requests
   useEffect(() => {
     return () => {
+      isMountedRef.current = false;
       if (audioRef.current) {
         audioRef.current.pause();
         audioRef.current = null;
+      }
+      if (abortControllerRef.current) {
+        abortControllerRef.current.abort();
+        abortControllerRef.current = null;
       }
     };
   }, []);
@@ -176,15 +192,12 @@ export function ChatPanel() {
   // Preload TTS model on mount to avoid timeout on first request
   useEffect(() => {
     const preloadTTSModel = async () => {
-      if (settings.tts_mode !== "browser") {
+      if (settings.tts_engine !== "off") {
         try {
-          console.log("ðŸŽµ Preloading TTS model...");
           ttsService.setBaseUrl(settings.tts_backend_url);
           await ttsService.preloadModel();
-          console.log("ðŸŽµ TTS model preloaded successfully");
         } catch (error) {
-          // Non-critical error, just log it
-          console.log("ðŸŽµ TTS model preload skipped (backend may not be ready):", error);
+          // Non-critical error, preload failed
         }
       }
     };
@@ -322,16 +335,14 @@ export function ChatPanel() {
     userMessage: string, 
     images?: string[], 
     files?: {name: string, content: string}[],
-    personaOverride?: typeof currentPersona
+    personaOverride?: typeof currentPersona,
+    inputType: "voice" | "text" = "text"
   ): Promise<string> => {
     // Use provided persona or fall back to currentPersona
     const persona = personaOverride || currentPersona;
     if (!persona) {
       throw new Error("No persona selected");
     }
-
-    console.log("ðŸ¤– [generateResponse] Using persona:", persona.name, "id:", persona.id);
-    console.log("ðŸ¤– [generateResponse] Persona has voice:", !!persona.voice_create?.has_audio);
 
     ollamaService.setBaseUrl(settings.ollama_url);
 
@@ -343,8 +354,6 @@ export function ChatPanel() {
     // If images are present, use vision model first to describe them,
     // then feed that description to the brain model
     if (images && images.length > 0) {
-      console.log("ðŸ‘ï¸ [ChatPanel] Images detected, using vision model:", settings.vision_model);
-      
       try {
         // Ask vision model to describe the images
         const visionMessages = [
@@ -361,8 +370,6 @@ export function ChatPanel() {
           { temperature: 0.3, top_p: 0.9 } // Lower temp for factual description
         );
         
-        console.log("ðŸ‘ï¸ [ChatPanel] Vision model description:", visionDescription.substring(0, 100) + "...");
-        
         // Enhance the user message with the vision description
         // Add explicit instruction to acknowledge what was seen
         enhancedMessage = `[INSTRUCTION: The user has shared ${images.length} image(s). You MUST acknowledge what you see in your response. Do not ignore the image content.]
@@ -373,7 +380,7 @@ User's request: ${cleanUserMessage}
 
 [REMEMBER: Address the image content directly in your response while staying in character]`;
       } catch (error) {
-        console.error("Vision model error:", error);
+
         toast.error("Vision model failed, proceeding with text only");
         enhancedMessage = `[User shared ${images.length} image(s) but I couldn't analyze them]\n\nUser's message: ${cleanUserMessage}`;
       }
@@ -383,7 +390,6 @@ User's request: ${cleanUserMessage}
     let fileContext = "";
     if (files && files.length > 0) {
       fileContext = files.map(f => `FILE: ${f.name}\n${f.content}`).join('\n\n');
-      console.log("ðŸ“Ž [ChatPanel] Files attached:", files.map(f => f.name).join(', '));
     }
 
     // WEB SEARCH: Check if query needs current information
@@ -397,14 +403,12 @@ User's request: ${cleanUserMessage}
       if (cached && (now - cached.timestamp) < CACHE_DURATION_MS && 
           (cleanUserMessage.toLowerCase().includes(cached.query.toLowerCase()) || 
            cached.query.toLowerCase().includes(cleanUserMessage.toLowerCase()))) {
-        console.log("ðŸ” [ChatPanel] Using cached search results for:", cached.query);
         searchContext = cached.context;
       } else {
         // Perform new search
         try {
-          console.log("ðŸ” [ChatPanel] Web search enabled, searching for:", cleanUserMessage);
           setIsSearchingWeb(true);
-          const searchResult = await searxngService.search({ query: cleanUserMessage });
+          const searchResult = await searxngService.search({ query: cleanUserMessage, deepSearch: true });
           searchContext = searxngService.formatForPrompt(searchResult);
           
           // Cache the results
@@ -413,9 +417,7 @@ User's request: ${cleanUserMessage}
             context: searchContext,
             timestamp: now
           };
-          console.log("ðŸ” [ChatPanel] Web search completed, results cached");
         } catch (error) {
-          console.error("ðŸ” [ChatPanel] Web search failed:", error);
           // Continue without search results
         } finally {
           setIsSearchingWeb(false);
@@ -423,49 +425,96 @@ User's request: ${cleanUserMessage}
       }
     }
 
-    // INTENT ROUTING - Get minimal system prompt based on query type
-    const route = await intentRouter.route(cleanUserMessage, persona.name, !!searchContext);
-    console.log("ðŸŽ¯ [Router] Intent:", route.intent, "Confidence:", route.confidence);
+    // SMART ROUTING - Use lightweight LLM to classify intent and determine processing
+    const routeResult: RouteResult = await smartRouter.route(
+      cleanUserMessage,
+      inputType,
+      persona,
+      !!(images && images.length > 0),
+      messages.slice(-5).map(m => ({ role: m.role, content: m.content })),
+      settings.router_model
+    );
     
-    // For memory_read intent, fetch file list and build minimal prompt
-    let systemPrompt = route.systemPrompt;
-    if (route.intent === "memory_read") {
+    // Build agent-aware system prompt
+    const agentContext = {
+      hasMemoryAccess: routeResult.needsMemoryAccess || routeResult.primaryIntent === "memory_read",
+      hasWebSearch: settings.enable_web_search && !!searchContext,
+      hasVision: !!(images && images.length > 0),
+      canWriteFiles: false, // Always require confirmation
+      toolPermissionRequired: true,
+    };
+    
+    let systemPrompt = buildAgentSystemPrompt(persona, agentContext);
+    
+    // Add router guidance
+    const routerGuidance = buildRouterGuidance(
+      routeResult.suggestedApproach,
+      routeResult.emotionalTone,
+      routeResult.confidence
+    );
+    if (routerGuidance) {
+      systemPrompt += routerGuidance;
+    }
+    
+    // Handle memory access if router suggests it
+    if (agentContext.hasMemoryAccess) {
       try {
-        const memoryFiles = await memoryToolsService.listMemories();
+        const personaId = persona.id || "default";
+        const memoryFiles = await memoryToolsService.listMemories(personaId);
         const fileNames = memoryFiles.map(f => f.name);
-        systemPrompt = intentRouter.getMemoryReadPrompt(persona.name, fileNames);
-        console.log("ðŸ“Ž [Router] Memory files:", fileNames.join(", "));
+        if (fileNames.length > 0) {
+          systemPrompt += `\n\nAvailable files: ${fileNames.join(", ")}`;
+        }
       } catch (e) {
-        systemPrompt = intentRouter.getMemoryReadPrompt(persona.name, []);
+        // Memory access unavailable
       }
     }
 
-    const conversationHistory = messages.slice(-10).map((msg) => ({
-      role: msg.role as "user" | "assistant" | "system",
-      content: msg.content, // No more tag stripping needed
-    }));
+    // Include ALL messages - never slice. User controls memory via memory manager.
+    const conversationHistory = messages.map((msg) => {
+      const timestamp = msg.timestamp || new Date().toISOString();
+      const timeStr = new Date(timestamp).toLocaleString();
+      return {
+        role: msg.role as "user" | "assistant" | "system",
+        content: `[${timeStr}] ${msg.content}`,
+      };
+    });
 
-    // Add web search context to system prompt if available
-    if (searchContext) {
-      systemPrompt += "\n\n[SEARCH RESULTS]\n" + searchContext + "\n[END SEARCH]";
+    // Use router to summarize search results if available
+    let processedSearchContext = searchContext;
+    if (searchContext && searchContext.length > 2000) {
+      try {
+        processedSearchContext = await smartRouter.summarizeSearchResults(
+          cleanUserMessage,
+          searchContext,
+          settings.router_model
+        );
+      } catch {
+        // Fallback to truncation
+        processedSearchContext = searchContext.substring(0, 4000) + "\n...[truncated]";
+      }
+    }
+
+    // Build user message with context
+    let userMessageContent = enhancedMessage;
+    
+    // Add processed search context to user message
+    if (processedSearchContext) {
+      userMessageContent = `[Search Results]\n${processedSearchContext}\n\n[Question]\n${enhancedMessage}`;
     }
     
-    // Add file attachments to system prompt if available
+    // Add file attachments to user message
     if (fileContext) {
-      systemPrompt += "\n\n[ATTACHED FILES]\n" + fileContext + "\n[END FILES]";
+      userMessageContent = `[Files]\n${fileContext}\n\n${userMessageContent}`;
     }
-    
-    console.log("ðŸ¤– [generateResponse] System prompt length:", systemPrompt.length);
-    console.log("ðŸ¤– [generateResponse] System prompt preview:", systemPrompt.substring(0, 200) + "...");
 
     const chatMessages = [
       { role: "system" as const, content: systemPrompt },
       ...conversationHistory,
-      { role: "user" as const, content: enhancedMessage },
+      { role: "user" as const, content: userMessageContent },
     ];
 
     try {
-      console.log("ðŸ¤– [ChatPanel] Sending to brain model:", settings.default_model);
       const response = await chatWithReadOnlyTools(
         settings.default_model,
         chatMessages,
@@ -473,9 +522,9 @@ User's request: ${cleanUserMessage}
           temperature: 0.8,
           top_p: 0.95,
           repeat_penalty: 1.0,
+          // No num_predict - model uses full context window
         }
       );
-      console.log("ðŸ¤– [ChatPanel] Brain response received, length:", response.length);
       
       if (!response || response.trim() === '') {
         throw new Error("Received empty response from language model");
@@ -483,7 +532,7 @@ User's request: ${cleanUserMessage}
 
       return response;
     } catch (error) {
-      console.error("LLM Error:", error);
+
       throw new Error("Failed to get response from language model. Is Ollama running?");
     }
   };
@@ -491,7 +540,6 @@ User's request: ${cleanUserMessage}
   const speakResponse = async (text: string, persona: typeof currentPersona, onBeforePlay?: (text: string) => void): Promise<void> => {
     // Check if TTS is disabled
     if (settings.tts_engine === 'off') {
-      console.log("ðŸ”Š [ChatPanel] TTS is disabled (off), skipping voice generation");
       onBeforePlay?.(text);
       return;
     }
@@ -502,160 +550,105 @@ User's request: ${cleanUserMessage}
       return;
     }
     
-    console.log("ðŸ”Š [ChatPanel] speakResponse called");
-    console.log("ðŸ”Š [ChatPanel] TTS mode:", settings.tts_mode);
-    console.log("ðŸ”Š [ChatPanel] Persona for voice:", persona?.name, "id:", persona?.id);
-    console.log("ðŸ”Š [ChatPanel] Voice check:", {
-      hasVoice: !!persona?.voice_create?.has_audio,
-      isSynthetic: persona?.voice_create?.voice_config?.type === "synthetic",
-      voiceId: persona?.voice_id,
-      voiceConfig: persona?.voice_create?.voice_config
-    });
-    
-    // Check if persona has a synthetic voice configuration (new system)
-    const hasSyntheticVoice = persona?.voice_create?.has_audio && 
-                              persona.voice_create?.voice_config?.type === "synthetic" &&
-                              persona.voice_create?.voice_config?.params;
-    
-    // Check if persona has a legacy created voice
-    const hasCreatedVoice = persona?.voice_create?.has_audio && 
-                           persona.voice_id === "created" &&
-                           !persona.voice_create?.voice_config;
-    
     // Determine which voice system to use based on tts_engine setting
-    // tts_engine: 'off' | 'browser' | 'qwen3'
-    const useQwen3Voice = hasSyntheticVoice && settings.tts_engine === "qwen3";
-    const useBackendTTS = settings.tts_engine === "qwen3";
-    
-    console.log("ðŸ”Š [ChatPanel] Voice selection:", { 
-      useQwen3Voice,
-      useBackendTTS,
-      hasSyntheticVoice,
-      hasCreatedVoice,
-      tts_engine: settings.tts_engine
-    });
-    
+    // tts_engine: 'off' | 'qwen3' | 'kitten'
+    const useKittenTTS = settings.tts_engine === "kitten";
     
     try {
       let audioData: string | null = null;
       
       // PHASE 1: GENERATION - Generate all audio first (blocking)
-      console.log('ðŸŽµ Starting voice generation...');
       setIsGeneratingVoice(true);
       
       // Note: No timeout - let the backend process as long as needed
       // Long LLM responses can take significant time to synthesize
       
-      if (useQwen3Voice && persona?.voice_create?.voice_config?.params) {
-        // ===== VOICE CREATION SYSTEM =====
-        // Create voice using unified TTS API
+      // ===== QWEN3 VOICE CREATION =====
+      // Use when Qwen3 engine is selected (voice created or default)
+      if (settings.tts_engine === "qwen3") {
         try {
           ttsService.setBaseUrl(settings.tts_backend_url);
           
-          const ttsStartTime = performance.now();
-          const params = persona.voice_create.voice_config.params;
-          const engine = (settings.tts_engine as TTSEngine) || 'browser';
+          // Load reference audio from IndexedDB/Tauri FS
+          const voiceData = await loadVoiceAudio(persona?.id || "default");
           
-          console.log('ðŸŽµ Creating voice with unified TTS:', {
-            engine: engine,
-            pitch: params.pitch,
-            speed: params.speed,
-          });
+          // Guard: If no reference audio available, try loading default persona voice
+          let referenceAudio = voiceData?.audio_data;
+          let referenceText = voiceData?.reference_text || persona?.voice_create?.reference_text;
           
-          // Load reference audio from IndexedDB if needed (Qwen3 requires it)
-          let referenceAudio: string | undefined = undefined;
-          let referenceText: string | undefined = persona.voice_create?.reference_text;
-          
-          // Guard: If Qwen3 is selected but no reference audio available, fallback to StyleTTS2
-          let effectiveEngine = engine;
-          if (engine === 'qwen3') {
-            console.log('ðŸŽµ Qwen3 selected - loading reference audio from storage...');
-            console.log('ðŸŽµ Persona ID:', persona.id);
-            console.log('ðŸŽµ Voice create config:', persona.voice_create);
-            const voiceData = await loadVoiceAudio(persona.id);
-            console.log('ðŸŽµ Voice data from IndexedDB:', voiceData ? `found (${voiceData.audio_data?.length} chars)` : 'not found');
-            if (voiceData?.audio_data) {
-              referenceAudio = voiceData.audio_data;
-              console.log('ðŸŽµ Reference audio loaded:', referenceAudio.length, 'chars');
-              // Check if it's valid base64
-              if (!referenceAudio.match(/^[A-Za-z0-9+/=]+$/)) {
-                console.error('ðŸŽµ WARNING: Reference audio does not look like valid base64!');
-              }
+          if (!referenceAudio) {
+            // Try loading default voice as fallback
+            const defaultVoiceData = await loadVoiceAudio("default");
+            if (defaultVoiceData?.audio_data) {
+              referenceAudio = defaultVoiceData.audio_data;
+              referenceText = defaultVoiceData.reference_text || "Hello! I'm Mimic, your personal AI assistant.";
             } else {
-              console.warn('ðŸŽµ No reference audio found for Qwen3 - falling back to Browser TTS');
-              console.warn('ðŸŽµ Qwen3 requires reference audio. Please create a voice in Voice Studio first.');
-              effectiveEngine = 'browser';
-              toast.info('Qwen3 requires a voice sample. Falling back to Browser TTS. Please create a voice first.');
+              // No voice sample available - show text only
+              toast.info('Qwen3 requires a voice sample. Please create a voice in Voice Creator first.');
+              setIsGeneratingVoice(false);
+              onBeforePlay?.(text); // Show text even without voice
+              return;
             }
           }
           
-          // Use the new unified createVoice API
+          // Get voice params from persona config or use defaults
+          const params = persona?.voice_create?.voice_config?.params || {
+            pitch: 0,
+            speed: 1.0,
+            warmth: 0.6,
+            expressiveness: 0.7,
+            stability: 0.5,
+            clarity: 0.6,
+            breathiness: 0.3,
+            resonance: 0.5,
+            emotion: 'neutral',
+            emphasis: 0.5,
+            pauses: 0.5,
+            energy: 0.6,
+            seed: undefined,
+          };
+          
+          // Use the unified createVoice API with Qwen3
           const response = await ttsService.createVoice(text, {
             reference_audio: referenceAudio,
             reference_text: referenceText,
             // Basic tuning
             pitch_shift: params.pitch || 0,
             speed: (params.speed || 1.0) * settings.speech_rate,
-            // Voice characteristics from persona config
-            warmth: params.warmth,
-            expressiveness: params.expressiveness,
-            stability: params.stability,
-            clarity: (params as any).clarity,
-            breathiness: (params as any).breathiness,
-            resonance: (params as any).resonance,
+            // Voice characteristics
+            warmth: params.warmth ?? 0.6,
+            expressiveness: params.expressiveness ?? 0.7,
+            stability: params.stability ?? 0.5,
+            clarity: (params as any).clarity ?? 0.6,
+            breathiness: (params as any).breathiness ?? 0.3,
+            resonance: (params as any).resonance ?? 0.5,
             // Speech characteristics
             emotion: (params as any).emotion || 'neutral',
-            emphasis: (params as any).emphasis,
-            pauses: (params as any).pauses,
-            energy: (params as any).energy,
+            emphasis: (params as any).emphasis ?? 0.5,
+            pauses: (params as any).pauses ?? 0.5,
+            energy: (params as any).energy ?? 0.6,
             // Audio effects
-            reverb: (params as any).reverb,
-            eq_low: (params as any).eq_low,
-            eq_mid: (params as any).eq_mid,
-            eq_high: (params as any).eq_high,
-            compression: (params as any).compression,
-            // Engine selection - use effectiveEngine (may be fallback to styletts2)
-            engine: effectiveEngine,
+            reverb: (params as any).reverb ?? 0.0,
+            eq_low: (params as any).eq_low ?? 0.5,
+            eq_mid: (params as any).eq_mid ?? 0.5,
+            eq_high: (params as any).eq_high ?? 0.5,
+            compression: (params as any).compression ?? 0.3,
+            // Engine selection
+            engine: 'qwen3',
             qwen3_model_size: (settings.qwen3_model_size as Qwen3ModelSize) || '0.6B',
             use_flash_attention: settings.qwen3_flash_attention !== false,
             seed: params.seed,
           });
           
-          console.log(`[TIMING] Voice creation (${response.engine_used}): ${(performance.now() - ttsStartTime).toFixed(0)}ms`);
-          
           audioData = response.audio_data;
-          console.log('ðŸŽµ Voice creation complete');
         } catch (error) {
-          console.error("Voice creation failed:", error);
-          toast.error(`Voice creation failed: ${error instanceof Error ? error.message : 'Unknown error'}. Using browser TTS.`);
-          // Fall through to browser TTS
-        }
-      } else if (useBackendTTS) {
-        try {
-          ttsService.setBaseUrl(settings.tts_backend_url);
-          
-          // Generate voice - no timeout, let it complete naturally
-          const response = await ttsService.generateSpeech({
-            text,
-            voice_id: persona?.voice_id || "default",
-            speed: settings.speech_rate,
-          });
-          
-          audioData = response.audio_data;
-          console.log('ðŸŽµ Voice generation complete (StyleTTS 2)');
-        } catch (error) {
-          console.error("Qwen3 TTS failed:", error);
-          toast.error(`Voice generation failed: ${error instanceof Error ? error.message : 'Unknown error'}. Using browser TTS.`);
-          // Fall through to browser TTS
+          toast.error(`Voice creation failed: ${error instanceof Error ? error.message : 'Unknown error'}. TTS disabled.`);
+          return;
         }
       }
       
       // PHASE 2: PLAYBACK - Output text and audio simultaneously
       setIsGeneratingVoice(false);
-      setIsSpeaking(true);
-      
-      // Show text in chat right before audio starts
-      onBeforePlay?.(text);
       
       if (audioData) {
         // Get persona's voice tuning for post-processing
@@ -664,8 +657,12 @@ User's request: ${cleanUserMessage}
         
         if (voiceTuning) {
           // Apply post-processing effects during playback
-          console.log('ðŸŽµ Applying voice tuning during playback:', voiceTuning);
+
           try {
+            // Show text immediately when audio starts
+            onBeforePlay?.(text);
+            setIsSpeaking(true, text, audioData);
+            
             await audioEffects.playWithEffects(audioData, {
               pitchShift: voiceTuning.pitchShift,
               speed: voiceTuning.speed * settings.speech_rate,
@@ -696,13 +693,17 @@ User's request: ${cleanUserMessage}
               }, 300000);
             });
           } catch (error) {
-            console.error('ðŸŽµ Audio effects playback failed:', error);
+
             // Fall back to global player
             globalPlayAudio({
               data: audioData,
               title: "AI Response",
               source: 'tts'
             });
+            
+            // Show text immediately
+            onBeforePlay?.(text);
+            setIsSpeaking(true, text, audioData);
             
             // Wait for playback to complete
             await new Promise<void>((resolve) => {
@@ -724,6 +725,10 @@ User's request: ${cleanUserMessage}
             source: 'tts'
           });
           
+          // Show text immediately
+          onBeforePlay?.(text);
+          setIsSpeaking(true, text, audioData);
+          
           // Wait for playback to complete
           await new Promise<void>((resolve) => {
             const checkEnded = setInterval(() => {
@@ -736,12 +741,74 @@ User's request: ${cleanUserMessage}
             setTimeout(() => { clearInterval(checkEnded); resolve(); }, 300000);
           });
         }
+      } else if (useKittenTTS) {
+        // KittenTTS (Local) - Uses audio-based lip sync like Qwen3
+        // Get fresh settings at generation time to pick up voice changes
+        const currentSettings = useStore.getState().settings;
+        const voice = currentSettings.kitten_voice || "Bella";
+        const model = currentSettings.kitten_model || "nano";
+        
+        try {
+          // PHASE 1: GENERATION - Generate audio first (blocking, no UI updates yet)
+          const speed = currentSettings.kitten_speed || 1.0;
+
+          const kittenResponse = await ttsService.generateKittenTTS(
+            text,
+            voice,
+            model,
+            speed
+          );
+          audioData = kittenResponse.audio_data;
+
+          
+          // PHASE 2: PLAYBACK - Everything starts together
+          // 1. Start audio playback (but don't show UI yet)
+          globalPlayAudio({
+            data: audioData,
+            title: "AI Response",
+            source: 'tts'
+          });
+          
+          // 2. Wait for audio to actually start playing
+          await new Promise<void>((resolve) => {
+            const checkStarted = setInterval(() => {
+              const state = useStore.getState();
+              if (state.audioPlayer.isPlaying && state.audioPlayer.audioData === audioData) {
+                clearInterval(checkStarted);
+                resolve();
+              }
+            }, 50);
+            // Timeout after 500ms to prevent hanging
+            setTimeout(() => { clearInterval(checkStarted); resolve(); }, 500);
+          });
+          
+          // 3. NOW show text and start lip sync together with audio
+
+          onBeforePlay?.(text);
+          setIsSpeaking(true, text, audioData);
+          
+          // 4. Wait for playback to complete
+          await new Promise<void>((resolve) => {
+            const checkEnded = setInterval(() => {
+              const state = useStore.getState();
+              if (!state.audioPlayer.isPlaying && state.audioPlayer.audioData === audioData) {
+                clearInterval(checkEnded);
+                resolve();
+              }
+            }, 100);
+            setTimeout(() => { clearInterval(checkEnded); resolve(); }, 300000);
+          });
+        } catch (kittenError) {
+          toast.error(`KittenTTS failed: ${kittenError instanceof Error ? kittenError.message : 'Unknown error'}`);
+          // Show text even if TTS failed
+          onBeforePlay?.(text);
+        }
       } else {
-        // Browser TTS fallback
-        await ttsService.speakWithBrowserTTS(text, settings.voice_volume, settings.speech_rate);
+        // This should not happen - if we get here, tts_engine is not set correctly
+        toast.error('Please select Qwen3-TTS or KittenTTS in settings');
+        onBeforePlay?.(text);
       }
     } catch (error) {
-      console.error('TTS failed:', error);
       // Still show text even if audio failed
       onBeforePlay?.(text);
     } finally {
@@ -750,7 +817,7 @@ User's request: ${cleanUserMessage}
     }
   };
 
-  const handleSend = async () => {
+  const handleSend = async (isVoiceInput = false) => {
     if ((!input.trim() && attachedImages.length === 0 && attachedFiles.length === 0) || isProcessing) return;
 
     if (!currentPersona) {
@@ -764,6 +831,7 @@ User's request: ${cleanUserMessage}
     const userMessage: ChatMessage = {
       role: "user",
       content: messageContent,
+      inputType: isVoiceInput ? "voice" : "text",
       ...(attachedImages.length > 0 ? { images: attachedImages } : {}),
     };
 
@@ -777,22 +845,13 @@ User's request: ${cleanUserMessage}
 
     // CAPTURE persona data at start - don't use currentPersona during async (it may change)
     const personaAtStart = currentPersona;
-    console.log(" [ChatPanel] handleSend started for persona:", personaAtStart.name, "id:", personaAtStart.id);
+
 
     try {
-      if (settings.enable_memory) {
-        const memoryContent = `User: ${messageContent}${imagesToSend.length > 0 ? ' [attached image]' : ''}${filesToSend.length > 0 ? ` [attached ${filesToSend.length} file(s)]` : ''}`;
-        addMemoryEntry(personaAtStart.id, {
-          content: memoryContent,
-          timestamp: new Date().toISOString(),
-          importance: 0.6,
-        });
-      }
-
       // Generate text response (but don't show it yet)
-      console.log(" [ChatPanel] Calling generateResponse...");
-      const response = await generateResponse(userMessage.content, imagesToSend, filesToSend, personaAtStart);
-      console.log(" [ChatPanel] generateResponse returned, response length:", response.length);
+
+      const response = await generateResponse(userMessage.content, imagesToSend, filesToSend, personaAtStart, userMessage.inputType || "text");
+
 
       if (settings.enable_memory) {
         // Update memory service thresholds from settings
@@ -800,8 +859,8 @@ User's request: ${cleanUserMessage}
         memoryService.setImportanceThreshold(settings.memory_importance_threshold || 0.5);
         
         // Use memory service to add message (respects importance threshold)
-        const userMessage: ChatMessage = { role: 'user', content: input };
-        memoryService.addMessage(personaAtStart, userMessage, settings.default_model)
+        const userMessageForMemory: ChatMessage = { role: 'user', content: messageContent };
+        memoryService.addMessage(personaAtStart, userMessageForMemory, settings.default_model)
           .then((updatedMemory) => {
             if (updatedMemory !== personaAtStart.memory) {
               updatePersona({
@@ -828,21 +887,50 @@ User's request: ${cleanUserMessage}
             }
           })
           .catch(console.error);
+
+        // ALSO save to file-based conversation history for persistent storage
+        // Save user message
+        memoryToolsService.saveConversationMessage(
+          personaAtStart.id,
+          "user",
+          messageContent,
+          imagesToSend.length > 0 ? "image" : filesToSend.length > 0 ? "file" : "text",
+          { 
+            hasImages: imagesToSend.length > 0,
+            hasFiles: filesToSend.length > 0,
+            inputType: userMessage.inputType || "text"
+          }
+        ).catch(err => console.error("Failed to save user message to history:", err));
+
+        // Save assistant response
+        memoryToolsService.saveConversationMessage(
+          personaAtStart.id,
+          "assistant",
+          response,
+          "text",
+          { inputType: "response" }
+        ).catch(err => console.error("Failed to save assistant response to history:", err));
       }
       
-      // Generate voice and wait for it to be ready (only if TTS is enabled)
-      if (settings.tts_engine === 'off') {
-        // TTS is disabled - just add text response immediately
-        console.log(" [ChatPanel] TTS is off, adding text response only");
-        addMessage({ role: "assistant", content: response });
+      // Unified flow: Match voice input behavior from WakeWordListener
+      if (settings.tts_engine !== 'off') {
+        try {
+          // Generate voice and output both text and audio
+          // Callback is called when audio starts playing
+          await speakResponse(response, personaAtStart, (text) => {
+            addMessage({ role: "assistant", content: text });
+          });
+        } catch (ttsError) {
+          // TTS failed - show text anyway
+          console.error("TTS failed:", ttsError);
+          addMessage({ role: "assistant", content: response });
+          toast.error("Voice generation failed", {
+            description: "Showing text response only."
+          });
+        }
       } else {
-        // TTS is enabled - generate voice and output both text and audio
-        console.log(" [ChatPanel] Calling speakResponse with persona:", personaAtStart.name);
-        await speakResponse(response, personaAtStart, (text) => {
-          // Callback called right before audio starts playing
-          addMessage({ role: "assistant", content: text });
-        });
-        console.log(" [ChatPanel] speakResponse completed");
+        // TTS off - show text immediately
+        addMessage({ role: "assistant", content: response });
       }
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : "Unknown error";
@@ -864,7 +952,7 @@ User's request: ${cleanUserMessage}
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
-      handleSend();
+      handleSend(false);
     }
   };
   
@@ -1000,7 +1088,30 @@ User's request: ${cleanUserMessage}
                       : "bg-muted"
                   }`}
                 >
-                  {message.content}
+                  {message.isLoading ? (
+                    <div className="flex items-center gap-2">
+                      <div className="flex items-center gap-1">
+                        {[0, 1, 2].map((i) => (
+                          <motion.span
+                            key={i}
+                            className="w-2 h-2 bg-primary rounded-full"
+                            animate={{
+                              scale: [1, 1.3, 1],
+                              opacity: [0.4, 1, 0.4],
+                            }}
+                            transition={{
+                              duration: 0.6,
+                              repeat: Infinity,
+                              delay: i * 0.15,
+                            }}
+                          />
+                        ))}
+                      </div>
+                      <span className="text-xs text-muted-foreground">Generating response...</span>
+                    </div>
+                  ) : (
+                    message.content
+                  )}
                   {/* Display attached images */}
                   {message.images && message.images.length > 0 && (
                     <div className="flex gap-2 mt-2 flex-wrap">
@@ -1033,40 +1144,6 @@ User's request: ${cleanUserMessage}
                 <span className="w-2 h-2 bg-muted-foreground rounded-full animate-bounce" style={{ animationDelay: "0ms" }} />
                 <span className="w-2 h-2 bg-muted-foreground rounded-full animate-bounce" style={{ animationDelay: "150ms" }} />
                 <span className="w-2 h-2 bg-muted-foreground rounded-full animate-bounce" style={{ animationDelay: "300ms" }} />
-              </div>
-            </motion.div>
-          )}
-          
-          {isGeneratingVoice && (
-            <motion.div
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-              className="flex gap-3"
-            >
-              <div className="w-8 h-8 rounded-full bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center">
-                <Bot className="w-4 h-4 text-white" />
-              </div>
-              <div className="bg-muted rounded-2xl px-4 py-3 flex items-center gap-2">
-                {/* Pulsing dots */}
-                <div className="flex items-center gap-1">
-                  {[0, 1, 2].map((i) => (
-                    <motion.span
-                      key={i}
-                      className="w-2 h-2 bg-primary rounded-full"
-                      animate={{
-                        scale: [1, 1.3, 1],
-                        opacity: [0.4, 1, 0.4],
-                      }}
-                      transition={{
-                        duration: 0.6,
-                        repeat: Infinity,
-                        delay: i * 0.15,
-                      }}
-                    />
-                  ))}
-                </div>
-                <span className="text-xs text-muted-foreground">Generating voice...</span>
               </div>
             </motion.div>
           )}
@@ -1108,6 +1185,10 @@ User's request: ${cleanUserMessage}
         isOpen={showFileModal}
         onClose={() => setShowFileModal(false)}
         onAttach={handleFileAttach}
+        onAttachImage={(base64) => {
+          setAttachedImages(prev => [...prev, base64]);
+          toast.success("Image attached! 📸");
+        }}
       />
 
       {/* Memory Manager */}
@@ -1132,6 +1213,14 @@ User's request: ${cleanUserMessage}
           }}
         />
       )}
+
+      {/* Tool Execution Confirmation */}
+      <ToolConfirmationModal
+        pending={toolConfirmation}
+        isExecuting={isToolExecuting}
+        onConfirm={confirmToolExecution}
+        onCancel={cancelToolExecution}
+      />
 
       {/* Draggable divider between chat and input */}
       <div 
@@ -1244,7 +1333,7 @@ User's request: ${cleanUserMessage}
             rows={1}
           />
           <Button
-            onClick={handleSend}
+            onClick={() => handleSend(false)}
             disabled={(!input.trim() && attachedImages.length === 0) || isProcessing}
             size="icon"
             className="shrink-0"
@@ -1271,18 +1360,6 @@ User's request: ${cleanUserMessage}
                 Off
               </button>
               <button
-                onClick={() => updateSettings({ tts_engine: 'browser' })}
-                className={`px-2 py-0.5 text-xs rounded transition-colors flex items-center gap-1 ${
-                  settings.tts_engine === 'browser' 
-                    ? 'bg-primary text-primary-foreground' 
-                    : 'text-muted-foreground hover:text-foreground'
-                }`}
-                title="Browser TTS - Uses your system's built-in text-to-speech"
-              >
-                <svg className="w-3 h-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"></polygon><path d="M15.54 8.46a5 5 0 0 1 0 7.07"></path></svg>
-                Browser
-              </button>
-              <button
                 onClick={() => updateSettings({ tts_engine: 'qwen3' })}
                 className={`px-2 py-0.5 text-xs rounded transition-colors flex items-center gap-1 ${
                   settings.tts_engine === 'qwen3' 
@@ -1294,6 +1371,18 @@ User's request: ${cleanUserMessage}
                 <svg className="w-3 h-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="4" y="4" width="16" height="16" rx="2"></rect><rect x="9" y="9" width="6" height="6"></rect><line x1="9" y1="1" x2="9" y2="4"></line><line x1="15" y1="1" x2="15" y2="4"></line><line x1="9" y1="20" x2="9" y2="23"></line><line x1="15" y1="20" x2="15" y2="23"></line><line x1="20" y1="9" x2="23" y2="9"></line><line x1="20" y1="14" x2="23" y2="14"></line><line x1="1" y1="9" x2="4" y2="9"></line><line x1="1" y1="14" x2="4" y2="14"></line></svg>
                 Qwen3
               </button>
+              <button
+                onClick={() => updateSettings({ tts_engine: 'kitten' })}
+                className={`px-2 py-0.5 text-xs rounded transition-colors flex items-center gap-1 ${
+                  settings.tts_engine === 'kitten' 
+                    ? 'bg-primary text-primary-foreground' 
+                    : 'text-muted-foreground hover:text-foreground'
+                }`}
+                title="KittenTTS - Cloud TTS with multiple voices (Bella, Jasper, Luna, etc.)"
+              >
+                <svg className="w-3 h-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2z"></path><path d="M8 14s1.5 2 4 2 4-2 4-2"></path><line x1="9" y1="9" x2="9.01" y2="9"></line><line x1="15" y1="9" x2="15.01" y2="9"></line></svg>
+                Kitten
+              </button>
             </div>
             
             {/* Qwen3 Model Size Toggle - Only show when Qwen3 selected and TTS not off */}
@@ -1301,7 +1390,7 @@ User's request: ${cleanUserMessage}
               <div className="flex items-center gap-1 bg-muted rounded-lg p-0.5">
                 <button
                   onClick={() => {
-                    console.log('[ChatPanel] Switching to Qwen3 0.6B model');
+
                     updateSettings({ qwen3_model_size: '0.6B' });
                   }}
                   className={`px-2 py-0.5 text-xs rounded transition-colors flex items-center gap-1 ${
@@ -1316,7 +1405,7 @@ User's request: ${cleanUserMessage}
                 </button>
                 <button
                   onClick={() => {
-                    console.log('[ChatPanel] Switching to Qwen3 1.7B model');
+
                     updateSettings({ qwen3_model_size: '1.7B' });
                   }}
                   className={`px-2 py-0.5 text-xs rounded transition-colors flex items-center gap-1 ${
@@ -1329,6 +1418,72 @@ User's request: ${cleanUserMessage}
                   <Sparkles className="w-3 h-3" />
                   1.7B
                 </button>
+              </div>
+            )}
+            
+            {/* KittenTTS Model Toggle - Only show when KittenTTS selected */}
+            {settings.tts_engine === 'kitten' && (
+              <div className="flex items-center gap-1 bg-muted rounded-lg p-0.5">
+                <button
+                  onClick={() => {
+
+                    updateSettings({ kitten_model: 'nano' });
+                  }}
+                  className={`px-2 py-0.5 text-xs rounded transition-colors flex items-center gap-1 ${
+                    settings.kitten_model === 'nano' || settings.kitten_model === undefined
+                      ? 'bg-primary text-primary-foreground' 
+                      : 'text-muted-foreground hover:text-foreground'
+                  }`}
+                  title="Nano - Fastest, 15M params"
+                >
+                  Nano
+                </button>
+                <button
+                  onClick={() => {
+
+                    updateSettings({ kitten_model: 'micro' });
+                  }}
+                  className={`px-2 py-0.5 text-xs rounded transition-colors flex items-center gap-1 ${
+                    settings.kitten_model === 'micro' 
+                      ? 'bg-primary text-primary-foreground' 
+                      : 'text-muted-foreground hover:text-foreground'
+                  }`}
+                  title="Micro - 40M params"
+                >
+                  Micro
+                </button>
+                <button
+                  onClick={() => {
+
+                    updateSettings({ kitten_model: 'mini' });
+                  }}
+                  className={`px-2 py-0.5 text-xs rounded transition-colors flex items-center gap-1 ${
+                    settings.kitten_model === 'mini' 
+                      ? 'bg-primary text-primary-foreground' 
+                      : 'text-muted-foreground hover:text-foreground'
+                  }`}
+                  title="Mini - Best quality, 80M params"
+                >
+                  Mini
+                </button>
+              </div>
+            )}
+            
+            {/* KittenTTS Speed Control */}
+            {settings.tts_engine === 'kitten' && (
+              <div className="flex items-center gap-2 mt-1">
+                <span className="text-xs text-muted-foreground">Speed:</span>
+                <input
+                  type="range"
+                  min="0.5"
+                  max="2.0"
+                  step="0.1"
+                  value={settings.kitten_speed || 1.0}
+                  onChange={(e) => updateSettings({ kitten_speed: parseFloat(e.target.value) })}
+                  className="w-24 h-1 bg-muted rounded-lg appearance-none cursor-pointer"
+                  title={`Speech speed: ${(settings.kitten_speed || 1.0).toFixed(1)}x`}
+                />
+                <span className="text-xs text-muted-foreground w-8">{(settings.kitten_speed || 1.0).toFixed(1)}x</span>
               </div>
             )}
           </div>

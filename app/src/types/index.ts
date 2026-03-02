@@ -117,7 +117,7 @@ export interface Persona {
         eq_mid?: number;
         eq_high?: number;
         compression?: number;
-        engine?: "off" | "browser" | "qwen3";
+        engine?: "off" | "browser" | "qwen3" | "kitten";
         qwen3_model_size?: "0.6B" | "1.7B";
         extraction_model_size?: "0.6B" | "1.7B";
         use_voice_profile?: boolean;
@@ -205,6 +205,7 @@ export interface AppSettings {
   ollama_url: string;
   default_model: string; // Brain model - for conversation/text
   vision_model: string;  // Vision model - for image understanding
+  router_model: string;  // Router model - for intent classification and routing (lightweight)
   tts_backend_url: string;
   wake_word_sensitivity: number;
   voice_volume: number;
@@ -216,10 +217,14 @@ export interface AppSettings {
   enable_memory: boolean;
   memory_importance_threshold: number; // Minimum importance (0-1) for storing memories
   memory_summarize_threshold: number; // Number of messages before summarizing
-  tts_mode: "browser" | "qwen3" | "auto"; // Legacy setting, now use tts_engine
-  tts_engine?: "off" | "browser" | "qwen3"; // TTS engine selection (off = text only, browser = system TTS, qwen3 = AI voice)
+  tts_mode: "qwen3" | "auto"; // Legacy setting, now use tts_engine
+  tts_engine?: "off" | "qwen3" | "kitten"; // TTS engine selection (off = no voice, qwen3 = AI voice, kitten = KittenTTS)
   qwen3_model_size?: "0.6B" | "1.7B"; // Qwen3 model size (0.6B = faster, 1.7B = better quality)
   qwen3_flash_attention?: boolean; // Use flash attention for Qwen3 (reduces VRAM)
+  // KittenTTS settings
+  kitten_voice?: string; // Selected KittenTTS voice (Bella, Jasper, Luna, etc.)
+  kitten_model?: "nano" | "micro" | "mini"; // Model size: nano (15M), micro (40M), mini (80M)
+  kitten_speed?: number; // Speech speed: 0.5 (slow) to 2.0 (fast), default 1.0
   microphone_device?: string; // Device ID for speech recognition (empty = default)
   enable_web_search: boolean; // Enable real-time web search for current information
 }
@@ -237,6 +242,28 @@ export interface OllamaModel {
     parameter_size?: string;
     quantization_level?: string;
   };
+}
+
+// Smart Router result for intent classification
+export interface SmartRouteResult {
+  inputType: "voice" | "text";
+  primaryIntent: 
+    | "general_chat"
+    | "memory_read"
+    | "memory_write"
+    | "web_search"
+    | "vision_analysis"
+    | "creative_writing"
+    | "technical_help"
+    | "personal_topic";
+  confidence: number;
+  suggestedTools: string[];
+  needsVisionModel: boolean;
+  needsWebSearch: boolean;
+  needsMemoryAccess: boolean;
+  processingNotes: string;
+  suggestedApproach: string;
+  emotionalTone: string;
 }
 
 export interface OllamaGenerateRequest {
@@ -291,6 +318,8 @@ export interface ChatMessage {
   timestamp?: string;
   id?: string;
   images?: string[]; // Base64 encoded images for vision models
+  inputType?: "voice" | "text"; // How the input was received (voice or text)
+  isLoading?: boolean; // For TTS generation placeholder
 }
 
 export interface Voice {

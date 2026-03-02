@@ -120,10 +120,14 @@ interface StoreState {
   isSpeaking: boolean;
   isProcessing: boolean;
   isGeneratingVoice: boolean;
+  ttsText: string | null;  // Text currently being spoken (for lip sync)
+  ttsAudioData: string | null;  // Base64 audio data for Qwen TTS analysis
+  currentAmplitude: number;  // Real-time audio amplitude for lip sync (0-1)
   setIsListening: (listening: boolean) => void;
-  setIsSpeaking: (speaking: boolean) => void;
+  setIsSpeaking: (speaking: boolean, text?: string | null, audioData?: string | null) => void;
   setIsProcessing: (processing: boolean) => void;
   setIsGeneratingVoice: (generating: boolean) => void;
+  setCurrentAmplitude: (amplitude: number) => void;
   
   // Available Models
   availableModels: string[];
@@ -154,6 +158,7 @@ const defaultSettings: AppSettings = {
   ollama_url: "http://localhost:11434",
   default_model: "",              // Will auto-select first available model
   vision_model: "",               // Will auto-select first available vision model, or 'none'
+  router_model: "qwen3:0.6b",     // Lightweight router for intent classification
   tts_backend_url: "http://localhost:8000",
   wake_word_sensitivity: 0.7,
   voice_volume: 1.0,
@@ -166,11 +171,15 @@ const defaultSettings: AppSettings = {
   memory_importance_threshold: 0.5, // Only store memories with importance >= 0.5
   memory_summarize_threshold: 20,
   tts_mode: "auto", // Legacy setting
-  tts_engine: "browser", // Default TTS engine (off, browser, or qwen3)
+  tts_engine: "kitten", // Default TTS engine (kitten or qwen3) (off, browser, qwen3, or kitten)
   qwen3_model_size: "0.6B", // Default to smaller model for speed
   qwen3_flash_attention: true, // Use flash attention by default
   microphone_device: "", // Empty = use system default
   enable_web_search: false, // Disabled by default
+  // KittenTTS defaults
+  kitten_voice: "Bella", // Default voice
+  kitten_model: "nano", // Default to fastest model
+  kitten_speed: 1.0, // Default speech speed
 };
 
 // Force reset auto_listen to false on app load (one-time migration)
@@ -338,7 +347,7 @@ export const useStore = create<StoreState>((set, get) => ({
     }
   },
   setCurrentPersona: (persona) => {
-    set({ currentPersona: persona });
+    set({ currentPersona: persona, messages: [] }); // Clear messages when switching personas
     if (persona) {
       localStorage.setItem("mimic_current_persona", JSON.stringify(persona));
       set((state) => ({ 
@@ -556,13 +565,13 @@ export const useStore = create<StoreState>((set, get) => ({
       
       get().updatePersona(updatedPersona);
       
-      // If current TTS engine is qwen3, switch to browser
+      // If current TTS engine is qwen3, switch to kitten
       // because qwen3 requires reference audio
       const currentSettings = get().settings;
       if (currentSettings.tts_engine === "qwen3") {
-        console.log("[Store] TTS engine was qwen3, switching to browser (no voice available)");
-        get().updateSettings({ tts_engine: "browser" });
-        toast.info("Switched to Browser TTS (Qwen3 requires a voice)");
+        console.log("[Store] TTS engine was qwen3, switching to kitten (no voice available)");
+        get().updateSettings({ tts_engine: "kitten" });
+        toast.info("Switched to KittenTTS (Qwen3 requires a voice)");
       }
       
       console.log("[Store] Voice cleared successfully");
@@ -677,10 +686,19 @@ export const useStore = create<StoreState>((set, get) => ({
   isSpeaking: false,
   isProcessing: false,
   isGeneratingVoice: false,
+  ttsText: null,
+  ttsAudioData: null,
+  currentAmplitude: 0,
   setIsListening: (listening) => set({ isListening: listening }),
-  setIsSpeaking: (speaking) => set({ isSpeaking: speaking }),
+  setIsSpeaking: (speaking, text = null, audioData = null) => set({ 
+    isSpeaking: speaking, 
+    ttsText: text,
+    ttsAudioData: audioData,
+    currentAmplitude: speaking ? 0 : 0  // Reset amplitude when speaking changes
+  }),
   setIsProcessing: (processing) => set({ isProcessing: processing }),
   setIsGeneratingVoice: (generating) => set({ isGeneratingVoice: generating }),
+  setCurrentAmplitude: (amplitude) => set({ currentAmplitude: amplitude }),
   
   // Available Models
   availableModels: [],

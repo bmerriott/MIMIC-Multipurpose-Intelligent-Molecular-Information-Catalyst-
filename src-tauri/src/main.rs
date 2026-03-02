@@ -5,6 +5,7 @@ use std::process::{Child, Command, Stdio};
 use std::sync::Mutex;
 use tauri::{Manager, State};
 use serde::{Serialize, Deserialize};
+use serde_json;
 use std::path::PathBuf;
 use base64::{Engine as _, engine::general_purpose};
 
@@ -178,6 +179,37 @@ fn main() {
         log_startup("    Python dependencies OK");
     }
     
+    // 2.6 Install espeak-ng if needed (required for KittenTTS)
+    // CRITICAL: Install BEFORE starting Python backend and wait for completion
+    let espeak_just_installed = if !setup_status.espeak_ng_installed {
+        log_startup("[*] espeak-ng not found, installing...");
+        log_startup("    This is required for KittenTTS voice engine");
+        
+        // Use blocking installation with visible window so user sees progress
+        match setup::install_espeak_ng_blocking() {
+            Ok(_) => {
+                log_startup("    espeak-ng installed successfully");
+                // Verify installation worked
+                if setup::check_espeak_ng() {
+                    log_startup("    espeak-ng verified OK");
+                    true
+                } else {
+                    log_startup("    WARNING: espeak-ng installation may require restart");
+                    false
+                }
+            }
+            Err(e) => {
+                log_startup(&format!("    WARNING: Failed to install espeak-ng: {}", e));
+                log_startup("    KittenTTS voice engine will not work without espeak-ng.");
+                log_startup("    Please install manually from: https://github.com/espeak-ng/espeak-ng/releases");
+                false
+            }
+        }
+    } else {
+        log_startup("    espeak-ng OK");
+        false
+    };
+    
     // 3. Start Python TTS server in its own thread - isolated from others
     let app_data_dir_create = app_data_dir.clone();
     let python_thread = std::thread::spawn(move || {
@@ -185,6 +217,38 @@ fn main() {
         start_python_backend_blocking(&app_data_dir_create);
         log_startup("    [Python Thread] Python TTS startup complete");
     });
+    
+    // 3.5 If we just installed espeak-ng, restart Python backend after it starts
+    // This ensures Python picks up the newly installed espeak-ng
+    if espeak_just_installed {
+        log_startup("[*] espeak-ng was just installed, will restart Python backend...");
+        
+        // Spawn a thread to wait and restart
+        let app_data_dir_restart = app_data_dir.clone();
+        std::thread::spawn(move || {
+            // Wait for initial Python startup (10 seconds)
+            log_startup("    [Restart Thread] Waiting for initial Python startup...");
+            std::thread::sleep(std::time::Duration::from_secs(10));
+            
+            // Kill Python process
+            log_startup("    [Restart Thread] Stopping Python for restart...");
+            #[cfg(target_os = "windows")]
+            {
+                let _ = Command::new("taskkill")
+                    .args(&["/F", "/IM", "python.exe"])
+                    .creation_flags(CREATE_NO_WINDOW)
+                    .output();
+            }
+            
+            // Wait for process to die
+            std::thread::sleep(std::time::Duration::from_secs(3));
+            
+            // Restart Python backend
+            log_startup("    [Restart Thread] Restarting Python with espeak-ng support...");
+            start_python_backend_blocking(&app_data_dir_restart);
+            log_startup("    [Restart Thread] Python restart complete");
+        });
+    }
     
     // Note: We don't join these threads - they run independently
     // This ensures Ollama starts even if Docker takes a long time
@@ -208,11 +272,12 @@ fn main() {
             }
             
             // Try to check for Python, but don't crash if it fails
-            let setup_status = setup::run_setup_check();
-            if !setup_status.python_installed {
+            let inner_setup_status = setup::run_setup_check();
+            
+            if !inner_setup_status.python_installed {
                 println!("Warning: Python not found - TTS features will not work");
                 println!("Please install Python 3.10-3.12 from https://python.org");
-            } else if !setup_status.dependencies_installed {
+            } else if !inner_setup_status.dependencies_installed {
                 println!("Warning: Python dependencies not fully installed");
                 println!("Some features may not work properly");
             }
@@ -302,6 +367,8 @@ fn main() {
             get_backend_port,
             get_app_data_path,
             show_in_folder,
+            scan_all_models,
+            get_model_directories,
             vrm_library::list_vrm_library,
             vrm_library::save_vrm_to_library,
             vrm_library::delete_vrm_from_library,
@@ -493,6 +560,271 @@ fn start_python_backend(app_data_dir: &PathBuf) -> u16 {
     port
 }
 
+/// Information about a discovered Ollama model
+#[derive(Serialize, Deserialize, Debug, Clone)]
+struct DiscoveredModel {
+    name: String,
+    model: String,
+    size: u64,
+    modified_at: String,
+    digest: String,
+    source_dir: String,
+    details: ModelDetails,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone, Default)]
+struct ModelDetails {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    parent_model: Option<String>,
+    format: String,
+    family: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    families: Option<Vec<String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    parameter_size: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    quantization_level: Option<String>,
+}
+
+/// Detect ALL Ollama model directories on the system
+fn detect_all_ollama_model_dirs() -> Vec<PathBuf> {
+    let mut found_dirs = Vec::new();
+    
+    // Check if OLLAMA_MODELS env var is already set
+    if let Ok(models_dir) = std::env::var("OLLAMA_MODELS") {
+        let path = PathBuf::from(models_dir);
+        if path.exists() {
+            log_startup(&format!("    Found OLLAMA_MODELS env var: {:?}", path));
+            found_dirs.push(path);
+        }
+    }
+    
+    // Check common locations
+    let possible_locations = vec![
+        // User's home directory (most common for Ollama Desktop and CLI)
+        dirs::home_dir().map(|h| h.join(".ollama").join("models")),
+        // LocalAppData (alternative location)
+        std::env::var("LOCALAPPDATA").ok().map(|p| PathBuf::from(p).join("Ollama").join("models")),
+        // AppData (another alternative)
+        std::env::var("APPDATA").ok().map(|p| PathBuf::from(p).join("Ollama").join("models")),
+        // ProgramData (system-wide installation)
+        std::env::var("ProgramData").ok().map(|p| PathBuf::from(p).join("Ollama").join("models")),
+    ];
+    
+    for location in possible_locations.iter().flatten() {
+        if location.exists() && !found_dirs.contains(location) {
+            // Verify it actually has models
+            if let Ok(entries) = std::fs::read_dir(location) {
+                let has_content = entries.count() > 0;
+                if has_content {
+                    log_startup(&format!("    Found Ollama models directory: {:?}", location));
+                    found_dirs.push(location.clone());
+                }
+            }
+        }
+    }
+    
+    found_dirs
+}
+
+/// Scan all Ollama model directories and return unified model list
+fn scan_all_ollama_models() -> Vec<DiscoveredModel> {
+    let dirs = detect_all_ollama_model_dirs();
+    let mut all_models: Vec<DiscoveredModel> = Vec::new();
+    
+    log_startup(&format!("[Model Scanner] Scanning {} Ollama directories...", dirs.len()));
+    
+    for models_dir in &dirs {
+        let manifests_dir = models_dir.join("manifests");
+        if !manifests_dir.exists() {
+            continue;
+        }
+        
+        // Scan registry.ollama.ai/library
+        let library_dir = manifests_dir.join("registry.ollama.ai").join("library");
+        if library_dir.exists() {
+            if let Ok(entries) = std::fs::read_dir(&library_dir) {
+                for entry in entries.flatten() {
+                    let model_name = entry.file_name().to_string_lossy().to_string();
+                    if let Ok(tags) = std::fs::read_dir(&entry.path()) {
+                        for tag_entry in tags.flatten() {
+                            if let Some(model) = parse_model_manifest(&tag_entry.path(), &model_name, models_dir) {
+                                // Check if we already have this model (avoid duplicates)
+                                if !all_models.iter().any(|m| m.name == model.name) {
+                                    all_models.push(model);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        
+        // Scan other namespaces (like aeline/, etc.)
+        if let Ok(entries) = std::fs::read_dir(&library_dir) {
+            for entry in entries.flatten() {
+                let namespace = entry.file_name().to_string_lossy().to_string();
+                if namespace == "library" { continue; }
+                
+                if let Ok(models) = std::fs::read_dir(&entry.path()) {
+                    for model_entry in models.flatten() {
+                        let model_name = format!("{}/{}", namespace, model_entry.file_name().to_string_lossy());
+                        if let Ok(tags) = std::fs::read_dir(&model_entry.path()) {
+                            for tag_entry in tags.flatten() {
+                                if let Some(model) = parse_model_manifest(&tag_entry.path(), &model_name, models_dir) {
+                                    if !all_models.iter().any(|m| m.name == model.name) {
+                                        all_models.push(model);
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+    
+    log_startup(&format!("[Model Scanner] Found {} unique models", all_models.len()));
+    all_models
+}
+
+/// Parse a single model manifest file
+fn parse_model_manifest(manifest_path: &PathBuf, model_name: &str, source_dir: &PathBuf) -> Option<DiscoveredModel> {
+    use std::io::Read;
+    
+    let tag = manifest_path.file_name()?.to_string_lossy().to_string();
+    let full_name = format!("{}:{}", model_name, tag);
+    
+    // Read manifest file
+    let mut file = std::fs::File::open(manifest_path).ok()?;
+    let mut contents = String::new();
+    file.read_to_string(&mut contents).ok()?;
+    
+    // Parse JSON manifest
+    let manifest: serde_json::Value = serde_json::from_str(&contents).ok()?;
+    
+    // Get config digest for the model identifier
+    let digest = manifest.get("config")?.get("digest")?.as_str()?.to_string();
+    
+    // Calculate TOTAL model size from all layers (not just config size)
+    let mut total_size: u64 = 0;
+    
+    // Add config size
+    if let Some(config_size) = manifest.get("config").and_then(|c| c.get("size")).and_then(|s| s.as_u64()) {
+        total_size += config_size;
+    }
+    
+    // Add all layer sizes
+    if let Some(layers) = manifest.get("layers").and_then(|l| l.as_array()) {
+        for layer in layers {
+            if let Some(layer_size) = layer.get("size").and_then(|s| s.as_u64()) {
+                total_size += layer_size;
+            }
+        }
+    }
+    
+    // Get modified time from file metadata
+    let modified_at = std::fs::metadata(manifest_path)
+        .ok()?
+        .modified()
+        .ok()?
+        .duration_since(std::time::UNIX_EPOCH)
+        .ok()?
+        .as_secs();
+    let modified_at_iso = chrono::DateTime::from_timestamp(modified_at as i64, 0)
+        .map(|dt| dt.to_rfc3339())
+        .unwrap_or_default();
+    
+    // Extract details from manifest - try to get parameter size from layer media types
+    let mut parameter_size = None;
+    let mut quantization_level = None;
+    let mut families = Vec::new();
+    
+    // Parse layer media types for model info
+    if let Some(layers) = manifest.get("layers").and_then(|l| l.as_array()) {
+        for layer in layers {
+            if let Some(media_type) = layer.get("mediaType").and_then(|m| m.as_str()) {
+                // Look for model layer with quantization info
+                if media_type.contains("model") {
+                    // Try to extract parameter size and quantization from media type or annotations
+                    if let Some(annotations) = layer.get("annotations").and_then(|a| a.as_object()) {
+                        if let Some(param) = annotations.get("org.opencontainers.image.title").and_then(|t| t.as_str()) {
+                            // Extract parameter size from title like "qwen3-30b-q4_k_m.gguf"
+                            if param.contains("0.5b") { parameter_size = Some("0.5B".to_string()); }
+                            else if param.contains("0.6b") { parameter_size = Some("0.6B".to_string()); }
+                            else if param.contains("1b") { parameter_size = Some("1B".to_string()); }
+                            else if param.contains("1.5b") { parameter_size = Some("1.5B".to_string()); }
+                            else if param.contains("3b") { parameter_size = Some("3B".to_string()); }
+                            else if param.contains("7b") { parameter_size = Some("7B".to_string()); }
+                            else if param.contains("8b") { parameter_size = Some("8B".to_string()); }
+                            else if param.contains("14b") { parameter_size = Some("14B".to_string()); }
+                            else if param.contains("30b") { parameter_size = Some("30B".to_string()); }
+                            else if param.contains("32b") { parameter_size = Some("32B".to_string()); }
+                            else if param.contains("70b") { parameter_size = Some("70B".to_string()); }
+                            
+                            // Extract quantization
+                            if param.to_lowercase().contains("q4_") || param.to_lowercase().contains("q4-") {
+                                quantization_level = Some("Q4".to_string());
+                            } else if param.to_lowercase().contains("q5_") || param.to_lowercase().contains("q5-") {
+                                quantization_level = Some("Q5".to_string());
+                            } else if param.to_lowercase().contains("q6_") || param.to_lowercase().contains("q6-") {
+                                quantization_level = Some("Q6".to_string());
+                            } else if param.to_lowercase().contains("q8_") || param.to_lowercase().contains("q8-") {
+                                quantization_level = Some("Q8".to_string());
+                            } else if param.to_lowercase().contains("fp16") {
+                                quantization_level = Some("FP16".to_string());
+                            }
+                        }
+                    }
+                    
+                    // Extract family from media type
+                    if media_type.contains("llama") { families.push("llama".to_string()); }
+                    else if media_type.contains("qwen") { families.push("qwen".to_string()); }
+                    else if media_type.contains("mistral") { families.push("mistral".to_string()); }
+                    else if media_type.contains("phi") { families.push("phi".to_string()); }
+                }
+            }
+        }
+    }
+    
+    // If no family found, try to infer from model name
+    if families.is_empty() {
+        let name_lower = full_name.to_lowercase();
+        if name_lower.contains("llama") { families.push("llama".to_string()); }
+        else if name_lower.contains("qwen") { families.push("qwen".to_string()); }
+        else if name_lower.contains("mistral") { families.push("mistral".to_string()); }
+        else if name_lower.contains("phi") { families.push("phi".to_string()); }
+        else if name_lower.contains("gemma") { families.push("gemma".to_string()); }
+        else { families.push("unknown".to_string()); }
+    }
+    
+    // Extract details from manifest
+    let details = ModelDetails {
+        parent_model: manifest.get("parent_model").and_then(|v| v.as_str()).map(|s| s.to_string()),
+        format: "gguf".to_string(), // Ollama models are typically GGUF
+        family: families.get(0).cloned().unwrap_or_else(|| "unknown".to_string()),
+        families: if families.len() > 1 { Some(families) } else { None },
+        parameter_size,
+        quantization_level,
+    };
+    
+    Some(DiscoveredModel {
+        name: full_name.clone(),
+        model: full_name,
+        size: total_size,
+        modified_at: modified_at_iso,
+        digest,
+        source_dir: source_dir.to_string_lossy().to_string(),
+        details,
+    })
+}
+
+/// Detect the primary Ollama models directory (for backward compatibility)
+fn detect_ollama_models_dir() -> Option<PathBuf> {
+    let dirs = detect_all_ollama_model_dirs();
+    dirs.into_iter().next()
+}
+
 /// Start Ollama server silently in the background
 fn start_ollama_server() {
     log_startup("[*] Checking for Ollama...");
@@ -525,18 +857,34 @@ fn start_ollama_server() {
             
             #[cfg(target_os = "windows")]
             {
+                // Detect and set Ollama models directory
+                let models_dir = detect_ollama_models_dir();
+                
                 // Start Ollama serve silently - don't kill existing, just start new if needed
                 // Ollama will handle the port binding itself
                 // Use null stdout/stderr to avoid issues with CREATE_NO_WINDOW and pipes
                 // Set required environment variables for Tauri WebView compatibility
-                let start_result = Command::new(path)
-                    .arg("serve")
+                let mut cmd = Command::new(path);
+                cmd.arg("serve")
                     .env("OLLAMA_ORIGINS", "*")
                     .env("OLLAMA_HOST", "0.0.0.0:11434")
                     .creation_flags(CREATE_NO_WINDOW)
                     .stdout(Stdio::null())
-                    .stderr(Stdio::null())
-                    .spawn();
+                    .stderr(Stdio::null());
+                
+                // Set OLLAMA_MODELS if we detected a directory
+                if let Some(ref dir) = models_dir {
+                    log_startup(&format!("    Setting OLLAMA_MODELS={:?}", dir));
+                    cmd.env("OLLAMA_MODELS", dir);
+                }
+                
+                // Set HOME/USERPROFILE to ensure Ollama uses correct user directory
+                if let Some(home) = dirs::home_dir() {
+                    cmd.env("USERPROFILE", &home);
+                    log_startup(&format!("    Setting USERPROFILE={:?}", home));
+                }
+                
+                let start_result = cmd.spawn();
                 
                 match start_result {
                     Ok(child) => {
@@ -547,7 +895,7 @@ fn start_ollama_server() {
                         std::thread::sleep(std::time::Duration::from_secs(2));
                         
                         // Verify it's running
-                        match reqwest::blocking::get("http://localhost:11434/api/tags") {
+                        match reqwest::blocking::get("http://127.0.0.1:11434/api/tags") {
                             Ok(response) if response.status().is_success() => {
                                 println!("    Ollama is now responding");
                                 log_startup("    Ollama is now responding");
@@ -582,6 +930,115 @@ fn start_ollama_server() {
             log_startup("    Ollama not found - please install from https://ollama.com");
         }
     }
+    
+    // Check and install required models
+    check_and_install_ollama_models();
+}
+
+/// Check for required Ollama models and install if missing
+fn check_and_install_ollama_models() {
+    log_startup("[*] Checking required Ollama models...");
+    
+    let required_models = vec![
+        ("qwen3:0.6b", "Qwen3 0.6B (Router)"),
+        ("llama3.2:latest", "Llama 3.2 (Brain)"),
+    ];
+    
+    // Check if Ollama is responding
+    let models_list = match reqwest::blocking::get("http://localhost:11434/api/tags") {
+        Ok(response) if response.status().is_success() => {
+            match response.json::<serde_json::Value>() {
+                Ok(json) => {
+                    json.get("models")
+                        .and_then(|m| m.as_array())
+                        .map(|arr| {
+                            arr.iter()
+                                .filter_map(|m| m.get("name").and_then(|n| n.as_str()))
+                                .map(|s| s.to_string())
+                                .collect::<Vec<String>>()
+                        })
+                        .unwrap_or_default()
+                }
+                Err(_) => {
+                    log_startup("    Warning: Could not parse Ollama models list");
+                    return;
+                }
+            }
+        }
+        _ => {
+            log_startup("    Warning: Ollama not responding, skipping model check");
+            return;
+        }
+    };
+    
+    // Check each required model
+    for (model_name, display_name) in required_models {
+        let is_installed = models_list.iter().any(|m| {
+            m.starts_with(model_name) || 
+            (model_name.contains(":") && m == model_name.split(':').next().unwrap_or(""))
+        });
+        
+        if is_installed {
+            log_startup(&format!("    ✓ {} is installed", display_name));
+        } else {
+            log_startup(&format!("    → Installing {}...", display_name));
+            
+            // Find Ollama executable
+            let ollama_exe = find_ollama_executable();
+            
+            if let Some(ollama_path) = ollama_exe {
+                // Pull the model in background
+                let model = model_name.to_string();
+                std::thread::spawn(move || {
+                    log_startup(&format!("    Starting background pull for {}", model));
+                    
+                    let pull_result = std::process::Command::new(&ollama_path)
+                        .args(&["pull", &model])
+                        .creation_flags(CREATE_NO_WINDOW)
+                        .stdout(std::process::Stdio::null())
+                        .stderr(std::process::Stdio::null())
+                        .output();
+                    
+                    match pull_result {
+                        Ok(output) if output.status.success() => {
+                            log_startup(&format!("    ✓ {} installed successfully", model));
+                        }
+                        Ok(_) => {
+                            log_startup(&format!("    ✗ Failed to install {} (will retry on next start)", model));
+                        }
+                        Err(e) => {
+                            log_startup(&format!("    ✗ Error installing {}: {}", model, e));
+                        }
+                    }
+                });
+            } else {
+                log_startup(&format!("    ✗ Cannot install {} - Ollama executable not found", display_name));
+            }
+        }
+    }
+}
+
+/// Find Ollama executable path
+fn find_ollama_executable() -> Option<PathBuf> {
+    let paths = vec![
+        PathBuf::from("C:/Program Files/Ollama/ollama.exe"),
+        PathBuf::from(std::env::var("LOCALAPPDATA").unwrap_or_default()).join("Programs/Ollama/ollama.exe"),
+        PathBuf::from("ollama"),  // Try PATH
+    ];
+    
+    paths.into_iter().find(|p| {
+        if p == &PathBuf::from("ollama") {
+            // Check if command exists in PATH
+            std::process::Command::new("ollama")
+                .arg("--version")
+                .creation_flags(CREATE_NO_WINDOW)
+                .output()
+                .map(|o| o.status.success())
+                .unwrap_or(false)
+        } else {
+            p.exists()
+        }
+    })
 }
 
 /// Start Docker with SearXNG container silently
@@ -903,19 +1360,55 @@ fn start_ollama_server_blocking() {
     log_startup("[*] Starting Ollama (blocking)...");
 
     // Check if Ollama API is already responding (from Ollama Desktop or previous instance)
-    let already_running = match reqwest::blocking::get("http://localhost:11434/api/tags") {
+    // Use 127.0.0.1 explicitly to avoid IPv6/IPv4 confusion
+    log_startup("    Checking Ollama at http://127.0.0.1:11434/api/tags...");
+    
+    // First, check which process is using port 11434
+    let netstat_check = Command::new("cmd")
+        .args(&["/c", "netstat -ano | findstr :11434"])
+        .creation_flags(CREATE_NO_WINDOW)
+        .stdout(Stdio::piped())
+        .output();
+    if let Ok(output) = netstat_check {
+        let output_str = String::from_utf8_lossy(&output.stdout);
+        log_startup(&format!("    Port 11434 usage:\n{}", output_str));
+    }
+    
+    // Also fetch and log the model list for diagnostics
+    let (already_running, models_info) = match reqwest::blocking::get("http://127.0.0.1:11434/api/tags") {
         Ok(response) if response.status().is_success() => {
+            let models_text = response.text().unwrap_or_default();
+            // Parse to extract model names
+            let model_names: Vec<String> = if let Ok(json) = serde_json::from_str::<serde_json::Value>(&models_text) {
+                json.get("models")
+                    .and_then(|m| m.as_array())
+                    .map(|arr| arr.iter()
+                        .filter_map(|m| m.get("name").and_then(|n| n.as_str()).map(|s| s.to_string()))
+                        .collect())
+                    .unwrap_or_default()
+            } else {
+                Vec::new()
+            };
+            
             println!("    Ollama API is already responding (Ollama Desktop may be running)");
-            log_startup("    Ollama API is already responding");
-            true
+            log_startup(&format!("    Ollama API is already responding"));
+            log_startup(&format!("    Models from existing Ollama: {:?}", model_names));
+            
+            // Log warning if qwen3:0.6b is not found
+            if !model_names.iter().any(|m| m == "qwen3:0.6b") {
+                log_startup("    WARNING: qwen3:0.6b NOT found in existing Ollama instance!");
+                log_startup("    This may be a different Ollama instance than your CLI.");
+            }
+            
+            (true, models_text)
         }
         Ok(response) => {
             log_startup(&format!("    Ollama responded with status: {}", response.status()));
-            false
+            (false, String::new())
         }
         Err(e) => {
             log_startup(&format!("    Ollama not responding yet: {}", e));
-            false
+            (false, String::new())
         }
     };
     
@@ -924,6 +1417,7 @@ fn start_ollama_server_blocking() {
     // If it's not actually running as a server, we need to start it
     if already_running {
         log_startup("    Attempting to start ollama serve anyway (will fail if port in use)...");
+        log_startup(&format!("    Current models available: {} bytes of JSON", models_info.len()));
     }
 
     // Find Ollama executable - check PATH first, then known locations
@@ -1001,17 +1495,33 @@ fn start_ollama_server_blocking() {
         // Now try to start Ollama serve directly with CREATE_NEW_CONSOLE
         log_startup("    Starting Ollama serve directly...");
         
+        // Detect and set Ollama models directory
+        let models_dir = detect_ollama_models_dir();
+        
         // Use CREATE_NEW_CONSOLE to create a new console window that we can hide
         // This avoids the \\?\ prefix issues with cmd /c
         // Set required environment variables for Tauri WebView compatibility
-        let start_result = Command::new(&path)
-            .arg("serve")
+        let mut cmd = Command::new(&path);
+        cmd.arg("serve")
             .env("OLLAMA_ORIGINS", "*")
             .env("OLLAMA_HOST", "0.0.0.0:11434")
             .creation_flags(CREATE_NO_WINDOW | CREATE_NEW_PROCESS_GROUP | DETACHED_PROCESS)
             .stdout(Stdio::null())
-            .stderr(Stdio::null())
-            .spawn();
+            .stderr(Stdio::null());
+        
+        // Set OLLAMA_MODELS if we detected a directory
+        if let Some(ref dir) = models_dir {
+            log_startup(&format!("    Setting OLLAMA_MODELS={:?}", dir));
+            cmd.env("OLLAMA_MODELS", dir);
+        }
+        
+        // Set HOME/USERPROFILE to ensure Ollama uses correct user directory
+        if let Some(home) = dirs::home_dir() {
+            cmd.env("USERPROFILE", &home);
+            log_startup(&format!("    Setting USERPROFILE={:?}", home));
+        }
+        
+        let start_result = cmd.spawn();
         
         match start_result {
             Ok(mut child) => {
@@ -1219,17 +1729,64 @@ fn start_python_backend_blocking(app_data_dir: &PathBuf) {
     let voices_dir = app_data_dir.join("voices");
     let backend_data_dir = app_data_dir.join("backend_data");
     
+    // Add espeak-ng to PATH if installed (required for KittenTTS)
+    let espeak_paths = [
+        r"C:\Program Files\eSpeak NG",
+        r"C:\Program Files (x86)\eSpeak NG",
+    ];
+    let mut path_env = std::env::var("PATH").unwrap_or_default();
+    let mut espeak_found = false;
+    for path in &espeak_paths {
+        let espeak_exe = std::path::Path::new(path).join("espeak-ng.exe");
+        if espeak_exe.exists() {
+            if !path_env.contains(path) {
+                path_env = format!("{};{}", path, path_env);
+            }
+            espeak_found = true;
+            log_startup(&format!("    Added espeak-ng to PATH: {}", path));
+            break;
+        }
+    }
+    
     #[cfg(target_os = "windows")]
     {
-        let start_result = Command::new(python_exe)
-            .arg(&backend_script)
+        // Create log files for backend output
+        let log_dir = app_data_dir.join("logs");
+        let _ = std::fs::create_dir_all(&log_dir);
+        let stdout_file = std::fs::File::create(log_dir.join("backend_stdout.log")).ok();
+        let stderr_file = std::fs::File::create(log_dir.join("backend_stderr.log")).ok();
+        
+        let mut cmd_builder = Command::new(python_exe);
+        cmd_builder.arg(&backend_script)
             .current_dir(&backend_dir)
             .env("MIMIC_PORT", PORT.to_string())
             .env("MIMIC_VOICES_DIR", &voices_dir)
             .env("MIMIC_DATA_DIR", &backend_data_dir)
             .env("SEARXNG_URL", "http://localhost:8080")
-            .stdout(Stdio::null())
-            .stderr(Stdio::null())
+            .env("PATH", &path_env);
+        
+        // Add PHONEMIZER_ESPEAK_PATH/LIBRARY if espeak found
+        if espeak_found {
+            for path in &espeak_paths {
+                let espeak_exe = std::path::Path::new(path).join("espeak-ng.exe");
+                let espeak_dll = std::path::Path::new(path).join("libespeak-ng.dll");
+                if espeak_exe.exists() {
+                    cmd_builder.env("PHONEMIZER_ESPEAK_PATH", &espeak_exe);
+                    if espeak_dll.exists() {
+                        cmd_builder.env("PHONEMIZER_ESPEAK_LIBRARY", &espeak_dll);
+                    }
+                    let data_path = std::path::Path::new(path).join("espeak-ng-data");
+                    if data_path.exists() {
+                        cmd_builder.env("ESPEAK_DATA_PATH", &data_path);
+                    }
+                    break;
+                }
+            }
+        }
+        
+        let start_result = cmd_builder
+            .stdout(stdout_file.map(|f| Stdio::from(f)).unwrap_or(Stdio::null()))
+            .stderr(stderr_file.map(|f| Stdio::from(f)).unwrap_or(Stdio::null()))
             .creation_flags(CREATE_NO_WINDOW | CREATE_NEW_PROCESS_GROUP)
             .spawn();
         
@@ -1453,4 +2010,34 @@ async fn show_in_folder(path: String) -> Result<(), String> {
             .map_err(|e| e.to_string())?;
     }
     Ok(())
+}
+
+/// Tauri command: Scan all Ollama model directories and return unified list
+#[tauri::command]
+async fn scan_all_models() -> Result<serde_json::Value, String> {
+    let models = scan_all_ollama_models();
+    
+    // Convert to Ollama API-compatible format
+    let models_json: Vec<serde_json::Value> = models.into_iter().map(|m| {
+        serde_json::json!({
+            "name": m.name,
+            "model": m.model,
+            "size": m.size,
+            "modified_at": m.modified_at,
+            "digest": m.digest,
+            "source_dir": m.source_dir,
+            "details": m.details,
+        })
+    }).collect();
+    
+    Ok(serde_json::json!({ "models": models_json }))
+}
+
+/// Tauri command: Get all Ollama model directories found on system
+#[tauri::command]
+fn get_model_directories() -> Vec<String> {
+    detect_all_ollama_model_dirs()
+        .into_iter()
+        .map(|p| p.to_string_lossy().to_string())
+        .collect()
 }

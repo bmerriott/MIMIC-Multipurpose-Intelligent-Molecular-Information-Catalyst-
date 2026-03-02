@@ -180,14 +180,22 @@ export function SettingsPanel() {
       updateAppState({ ollama_connected: connected });
       
       if (connected) {
-        toast.success("Successfully connected to Ollama");
-        await fetchModels();
+        const modelList = await ollamaService.listModels();
+        const modelNames = modelList.map(m => m.name).join(', ');
+        console.log('[Settings] Models found:', modelList.length, modelNames);
+        
+        if (modelList.length === 0) {
+          toast.error("Connected but no models found! Run 'ollama pull llama3.2' in terminal.");
+        } else {
+          toast.success(`Connected! Found ${modelList.length} models: ${modelNames.substring(0, 100)}...`);
+        }
       } else {
         toast.error("Could not connect to Ollama. Please check your settings.");
       }
     } catch (error) {
       updateAppState({ ollama_connected: false });
       toast.error("Connection test failed");
+      console.error('[Settings] Connection error:', error);
     } finally {
       setIsTestingOllama(false);
     }
@@ -412,6 +420,17 @@ export function SettingsPanel() {
               </p>
             </div>
 
+            {appState.ollama_connected && (
+              <div className="text-sm text-muted-foreground bg-muted/50 p-3 rounded">
+                <p className="font-medium mb-1">Diagnostics:</p>
+                <p className="text-xs">Connected to: {settings.ollama_url}</p>
+                <p className="text-xs mt-1">Windows models folder: <code className="bg-secondary px-1 rounded">%USERPROFILE%\.ollama\models</code></p>
+                <p className="text-xs mt-1 text-amber-400">
+                  If models are missing, ensure Ollama is running as the same user.
+                </p>
+              </div>
+            )}
+
             {!appState.ollama_connected && (
               <div className="text-sm text-muted-foreground bg-muted p-3 rounded">
                 <p className="font-medium mb-1">Getting Started with Ollama:</p>
@@ -421,6 +440,9 @@ export function SettingsPanel() {
                   <li>Pull a model: <code className="bg-secondary px-1 rounded">ollama pull llama3.2</code></li>
                   <li>Click the test button above to connect</li>
                 </ol>
+                <p className="text-xs mt-2 text-amber-400">
+                  Note: Run Ollama as your normal user, not Administrator.
+                </p>
               </div>
             )}
           </div>
@@ -524,22 +546,16 @@ export function SettingsPanel() {
               <Label>TTS Mode</Label>
               <Select 
                 value={settings.tts_mode} 
-                onValueChange={(value: "browser" | "qwen3" | "auto") => updateSettings({ tts_mode: value })}
+                onValueChange={(value: "qwen3" | "auto") => updateSettings({ tts_mode: value })}
               >
                 <SelectTrigger>
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="browser">
-                    <div className="flex flex-col items-start">
-                      <span>Browser TTS (Fastest)</span>
-                      <span className="text-xs text-muted-foreground">Always use browser TTS - fastest responses</span>
-                    </div>
-                  </SelectItem>
                   <SelectItem value="auto">
                     <div className="flex flex-col items-start">
                       <span>Auto (Recommended)</span>
-                      <span className="text-xs text-muted-foreground">Qwen3 for created voices, Browser for others</span>
+                      <span className="text-xs text-muted-foreground">Qwen3 for created voices, Kitten for others</span>
                     </div>
                   </SelectItem>
                   <SelectItem value="qwen3">
@@ -562,8 +578,8 @@ export function SettingsPanel() {
                 TTS Engine
               </Label>
               <Select 
-                value={settings.tts_engine || "browser"} 
-                onValueChange={(value: "off" | "browser" | "qwen3") => updateSettings({ tts_engine: value })}
+                value={settings.tts_engine || "kitten"} 
+                onValueChange={(value: "off" | "qwen3" | "kitten") => updateSettings({ tts_engine: value })}
               >
                 <SelectTrigger>
                   <SelectValue />
@@ -575,16 +591,16 @@ export function SettingsPanel() {
                       <span className="text-xs text-muted-foreground">Text only, no voice output</span>
                     </div>
                   </SelectItem>
-                  <SelectItem value="browser">
-                    <div className="flex flex-col items-start">
-                      <span>Browser TTS</span>
-                      <span className="text-xs text-muted-foreground">System voice, no setup required</span>
-                    </div>
-                  </SelectItem>
                   <SelectItem value="qwen3">
                     <div className="flex flex-col items-start">
                       <span>Qwen3-TTS</span>
-                      <span className="text-xs text-muted-foreground">Higher quality, requires reference audio</span>
+                      <span className="text-xs text-muted-foreground">AI voice creation with reference audio</span>
+                    </div>
+                  </SelectItem>
+                  <SelectItem value="kitten">
+                    <div className="flex flex-col items-start">
+                      <span>KittenTTS</span>
+                      <span className="text-xs text-muted-foreground">Cloud TTS with multiple voices</span>
                     </div>
                   </SelectItem>
                 </SelectContent>
@@ -597,7 +613,7 @@ export function SettingsPanel() {
                 <p className="text-sm text-amber-400 font-medium">Qwen3 Requires a Voice</p>
                 <p className="text-xs text-muted-foreground mt-1">
                   The current persona ({currentPersona?.name || "Unknown"}) does not have a created voice. 
-                  Qwen3 will fallback to StyleTTS2 until you create a voice in Voice Studio.
+                  Please create a voice in Voice Studio or switch to KittenTTS.
                 </p>
               </div>
             )}
@@ -645,6 +661,65 @@ export function SettingsPanel() {
                     checked={settings.qwen3_flash_attention !== false}
                     onCheckedChange={(checked) => updateSettings({ qwen3_flash_attention: checked })}
                   />
+                </div>
+              </div>
+            )}
+
+            {/* KittenTTS Options */}
+            {settings.tts_engine === "kitten" && (
+              <div className="space-y-4 pt-4 border-t">
+                <div className="space-y-2">
+                  <Label>Voice</Label>
+                  <Select 
+                    value={settings.kitten_voice || "Bella"} 
+                    onValueChange={(value) => updateSettings({ kitten_voice: value })}
+                  >
+                    <SelectTrigger>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="Bella">Bella (Female)</SelectItem>
+                      <SelectItem value="Jasper">Jasper (Male)</SelectItem>
+                      <SelectItem value="Luna">Luna (Female)</SelectItem>
+                      <SelectItem value="Bruno">Bruno (Male)</SelectItem>
+                      <SelectItem value="Rosie">Rosie (Female)</SelectItem>
+                      <SelectItem value="Hugo">Hugo (Male)</SelectItem>
+                      <SelectItem value="Kiki">Kiki (Female)</SelectItem>
+                      <SelectItem value="Leo">Leo (Male)</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                <div className="space-y-2">
+                  <Label>Model</Label>
+                  <Select 
+                    value={settings.kitten_model || "nano"} 
+                    onValueChange={(value: "nano" | "micro" | "mini") => updateSettings({ kitten_model: value })}
+                  >
+                    <SelectTrigger>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="nano">
+                        <div className="flex flex-col items-start">
+                          <span>Nano (15M params)</span>
+                          <span className="text-xs text-muted-foreground">Fastest, lowest VRAM</span>
+                        </div>
+                      </SelectItem>
+                      <SelectItem value="micro">
+                        <div className="flex flex-col items-start">
+                          <span>Micro (40M params)</span>
+                          <span className="text-xs text-muted-foreground">Balanced quality/speed</span>
+                        </div>
+                      </SelectItem>
+                      <SelectItem value="mini">
+                        <div className="flex flex-col items-start">
+                          <span>Mini (80M params)</span>
+                          <span className="text-xs text-muted-foreground">Best quality</span>
+                        </div>
+                      </SelectItem>
+                    </SelectContent>
+                  </Select>
                 </div>
               </div>
             )}
@@ -978,7 +1053,7 @@ export function SettingsPanel() {
           <div className="pl-7 space-y-2 text-sm text-muted-foreground">
             <div className="grid grid-cols-2 gap-2">
               <span>Mimic Assistant</span>
-              <span>v1.0.0</span>
+              <span>v1.2.0</span>
               
               <span>Ollama Status</span>
               <span className={appState.ollama_connected ? "text-green-400" : "text-red-400"}>

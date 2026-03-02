@@ -35,15 +35,15 @@ scipy>=1.11.0
 soundfile>=0.12.1
 librosa>=0.10.0
 
-# TTS Engines - Install based on preference
-# StyleTTS2 (lightweight, fast)
-styletts2>=0.1.0
-gruut>=2.3.0
-
-# Qwen3-TTS (higher quality, heavier)
+# TTS Engines
+# Qwen3-TTS (high quality voice cloning)
 # Install with: pip install qwen-tts
 # Optional: Flash Attention 2 for Qwen3 (reduces VRAM usage)
 # pip install flash-attn --no-build-isolation
+
+# KittenTTS (lightweight, fast, multiple voices)
+# Install with: pip install kittentts
+# Models: nano (15M), micro (40M), mini (80M), nano-int8 (quantized)
 
 # PyTorch - Will be installed by launcher if missing
 # For CPU (default):

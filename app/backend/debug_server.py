@@ -46,8 +46,8 @@ print("Step 3: Importing tts_server_unified...")
 try:
     import tts_server_unified
     print("[OK] Module imported successfully")
-    print(f"  - StyleTTS2: {tts_server_unified.STYLETTS2_AVAILABLE}")
     print(f"  - Qwen3: {tts_server_unified.QWEN_TTS_AVAILABLE}")
+    print(f"  - KittenTTS: {tts_server_unified.KITTEN_TTS_AVAILABLE}")
 except Exception as e:
     print(f"[FAIL] Could not import module: {e}")
     import traceback

@@ -1,7 +1,7 @@
 {
   "name": "mimic-ai-assistant",
   "private": true,
-  "version": "1.0.0",
+  "version": "1.2.0",
   "type": "module",
   "description": "A beautiful AI desktop assistant with voice cloning, 3D avatar, and contextual memory",
   "scripts": {
@@ -95,10 +95,11 @@
     "ollama",
     "llm",
     "tts",
+    "kittentts",
     "qwen3-tts",
     "react",
     "threejs"
   ],
   "author": "Mimic AI Team",
-  "license": "MIT"
+  "license": "Proprietary - See LICENSE.txt"
 }

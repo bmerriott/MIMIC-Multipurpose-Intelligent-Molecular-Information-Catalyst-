@@ -1,84 +1,46 @@
-MIMIC AI DESKTOP ASSISTANT
-END USER LICENSE AGREEMENT
-
-Copyright (c) 2026 bmerriott. All Rights Reserved.
-
-IMPORTANT: PLEASE READ THIS LICENSE AGREEMENT CAREFULLY BEFORE USING THIS SOFTWARE. BY INSTALLING, COPYING, OR OTHERWISE USING THE SOFTWARE, YOU AGREE TO BE BOUND BY THE TERMS OF THIS AGREEMENT. IF YOU DO NOT AGREE TO THE TERMS OF THIS AGREEMENT, DO NOT INSTALL OR USE THE SOFTWARE.
-
-========================================================================
+END USER LICENSE AGREEMENT (EULA)
+Effective Date: February 27, 2026
+Licensor: Dead Head Studios
+Software: MIMIC (Multipurpose Intelligent Molecular Information Catalyst)
 
 1. GRANT OF LICENSE
+Dead Head Studios hereby grants you a personal, non-exclusive, non-transferable, and revocable license to use the Software on your devices strictly in accordance with the terms of this Agreement. This is a Proprietary License; the Software is licensed, not sold.
 
-Subject to your compliance with the terms and conditions of this Agreement, bmerriott (the "Licensor") grants you a limited, non-exclusive, non-transferable, revocable license to use the Mimic AI Desktop Assistant software (the "Software") solely for your personal, non-commercial use.
+2. FREEMIUM MODEL & IN-STORE PURCHASES
+The Software is provided under a Freemium model.
 
-This license is conditional upon:
-(a) Your acceptance of all terms herein;
-(b) Completion of the trial period as specified in Section 2;
-(c) Maintenance of an active subscription as specified in Section 3.
+Base Software: Core functionality of MIMIC is provided free of charge.
 
-2. TRIAL PERIOD
+Premium Content: Dead Head Studios features an internal store where users may purchase additional assets, including but not limited to Voice Packs, Animations, and Avatars.
 
-The Software includes a 7-day free trial period commencing from the date of first use (the "Trial Period"). During the Trial Period, you may use the Software free of charge to evaluate its functionality and suitability for your needs.
+License to Content: Purchases made within the Software grant you a limited, non-transferable license to use that specific content exclusively within the MIMIC environment.
 
-Upon expiration of the Trial Period, your license to use the Software will automatically terminate unless you purchase a subscription as set forth in Section 3. Continued use of the Software after the Trial Period without an active subscription constitutes a material breach of this Agreement.
+3. RESTRICTIONS
+You agree not to, and you will not permit others to:
 
-3. SUBSCRIPTION TERMS
+Decompile, reverse engineer, or disassemble the Software.
 
-Following the Trial Period, continued use of the Software requires an active subscription obtained through Patreon at the rate of $5.00 USD per month (the "Subscription").
+Modify, adapt, or create derivative works of the Software or its premium assets.
 
-Your license to use the Software is contingent upon maintaining an active, paid Subscription. Failure to maintain payment or cancellation of your Subscription will result in immediate termination of this license and your right to use the Software.
+Extract premium assets (voice packs, animations, etc.) for use in external applications.
 
-All Subscription fees are non-refundable except where required by applicable law. The Licensor reserves the right to modify Subscription pricing upon thirty (30) days' advance notice.
+Rent, lease, lend, sell, redistribute, or sublicense the Software.
 
-4. RESTRICTIONS
-
-You may NOT, without prior written permission from the Licensor:
-
-(a) Redistribute, sublicense, sell, lease, lend, or transfer the Software or any portion thereof to any third party;
-(b) Reverse engineer, decompile, disassemble, modify, translate, or create derivative works based upon the Software, except to the extent expressly permitted by applicable law notwithstanding this limitation;
-(c) Remove, alter, or obscure any proprietary notices, labels, or marks from the Software;
-(d) Use the Software for any commercial purpose without obtaining a separate commercial license;
-(e) Use the Software in any manner that violates applicable laws or regulations;
-(f) Circumvent or attempt to circumvent any license protection mechanism or trial period limitations.
-
-Commercial use of the Software requires a separate commercial license agreement. Contact the Licensor for commercial licensing inquiries.
+4. INTELLECTUAL PROPERTY
+All title, ownership rights, and intellectual property rights in and to the Software—including the underlying code, branding, and all store assets—are owned exclusively by Dead Head Studios. The Software is protected by copyright laws and international treaties.
 
 5. TERMINATION
+This Agreement is effective until terminated. Your rights under this license will terminate automatically without notice from Dead Head Studios if you fail to comply with any term(s) of this Agreement. Upon termination, you must cease all use of the Software and destroy all copies.
 
-This Agreement is effective until terminated. The Licensor may terminate this Agreement immediately and without prior notice if you fail to comply with any term or condition herein. Upon termination for any reason:
-
-(a) All rights granted to you under this Agreement shall immediately cease;
-(b) You must immediately cease all use of the Software;
-(c) You must destroy all copies of the Software and related documentation in your possession or control.
-
-Termination of this Agreement shall not preclude the Licensor from pursuing any other remedies available at law or in equity.
-
-6. DISCLAIMER OF WARRANTY
-
-THE SOFTWARE IS PROVIDED "AS IS" AND "AS AVAILABLE" WITHOUT WARRANTY OF ANY KIND, EITHER EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE IMPLIED WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE, AND NON-INFRINGEMENT.
-
-THE LICENSOR DOES NOT WARRANT THAT THE SOFTWARE WILL BE UNINTERRUPTED, ERROR-FREE, VIRUS-FREE, OR THAT DEFECTS WILL BE CORRECTED. YOU ASSUME ALL RISK FOR SELECTION, USE, AND RESULTS OBTAINED FROM THE SOFTWARE.
+6. NO WARRANTY ("AS IS")
+THE SOFTWARE IS PROVIDED "AS IS" WITHOUT WARRANTY OF ANY KIND. DEAD HEAD STUDIOS DISCLAIMS ALL WARRANTIES, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY OR FITNESS FOR A PARTICULAR PURPOSE.
 
 7. LIMITATION OF LIABILITY
+TO THE MAXIMUM EXTENT PERMITTED BY LAW, DEAD HEAD STUDIOS SHALL NOT BE LIABLE FOR ANY DAMAGES ARISING OUT OF THE USE OR INABILITY TO USE THE SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGES.
 
-TO THE MAXIMUM EXTENT PERMITTED BY APPLICABLE LAW, IN NO EVENT SHALL THE LICENSOR BE LIABLE FOR ANY INDIRECT, INCIDENTAL, SPECIAL, CONSEQUENTIAL, OR PUNITIVE DAMAGES, INCLUDING BUT NOT LIMITED TO LOSS OF PROFITS, DATA, OR USE, ARISING OUT OF OR IN CONNECTION WITH THIS AGREEMENT OR THE USE OR PERFORMANCE OF THE SOFTWARE, EVEN IF THE LICENSOR HAS BEEN ADVISED OF THE POSSIBILITY OF SUCH DAMAGES.
+8. CONTACT INFORMATION
+For questions regarding this EULA, technical support, or licensing inquiries, please contact:
 
-THE LICENSOR'S TOTAL LIABILITY FOR ALL CLAIMS ARISING UNDER THIS AGREEMENT SHALL NOT EXCEED THE TOTAL AMOUNT PAID BY YOU FOR THE SOFTWARE IN THE TWELVE (12) MONTHS PRECEDING THE CLAIM, OR IF NO AMOUNTS WERE PAID, THE SUM OF FIFTY DOLLARS ($50.00 USD).
+Email: deadheadstudios@atomicmail.io
 
-8. GENERAL
-
-(a) This Agreement constitutes the entire agreement between you and the Licensor regarding the Software and supersedes all prior agreements, understandings, and representations.
-
-(b) If any provision of this Agreement is held invalid or unenforceable, the remaining provisions shall continue in full force and effect.
-
-(c) This Agreement shall be governed by and construed in accordance with the laws of the jurisdiction in which the Licensor resides, without regard to conflict of law principles.
-
-(d) The Licensor reserves the right to modify this Agreement at any time. Continued use of the Software following any modifications constitutes acceptance of the revised terms.
-
-(e) All rights not expressly granted herein are reserved by the Licensor.
-
-========================================================================
-
-For licensing inquiries, commercial licensing, or questions regarding this Agreement, please contact the Licensor.
-
-By using the Mimic AI Desktop Assistant, you acknowledge that you have read, understood, and agree to be bound by this End User License Agreement.
+Web: https://github.com/bmerriott/MIMIC-Multipurpose-Intelligent-Molecular-Information-Catalyst-

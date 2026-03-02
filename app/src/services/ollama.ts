@@ -1,3 +1,4 @@
+import { invoke } from "@tauri-apps/api/tauri";
 import type { 
   OllamaModel, 
   OllamaChatRequest, 
@@ -12,7 +13,7 @@ export class OllamaService {
   private baseUrl: string;
   private useProxy: boolean;
 
-  constructor(baseUrl: string = "http://localhost:11434") {
+  constructor(baseUrl: string = "http://127.0.0.1:11434") {
     this.baseUrl = baseUrl;
     // Only use proxy in Vite development server
     // In Tauri production, use direct connection (no CORS issues in WebView)
@@ -71,9 +72,24 @@ export class OllamaService {
   }
 
   async listModels(): Promise<OllamaModel[]> {
+    // First try system-wide scanner (finds models from all Ollama installations)
+    try {
+      console.log('[Ollama] Scanning all model directories...');
+      const scanResult = await invoke<{ models: OllamaModel[] }>('scan_all_models');
+      if (scanResult.models && scanResult.models.length > 0) {
+        console.log(`[Ollama] System-wide scan found ${scanResult.models.length} models`);
+        const chatModels = this.filterChatModels(scanResult.models);
+        console.log('[Ollama] Chat-capable models from scan:', chatModels.map((m: any) => m.name).join(', '));
+        return chatModels;
+      }
+    } catch (scanError) {
+      console.log('[Ollama] System-wide scan failed, falling back to API:', scanError);
+    }
+
+    // Fall back to Ollama API
     try {
       const url = this.getUrl('/api/tags');
-      console.log('Fetching models from:', url);
+      console.log('Fetching models from Ollama API:', url);
       
       const response = await fetch(url, {
         method: "GET",
@@ -87,11 +103,11 @@ export class OllamaService {
 
       const data = await response.json();
       const allModels = data.models || [];
-      console.log('Models received:', allModels.length);
+      console.log('[Ollama] All models from API:', allModels.map((m: any) => `${m.name}(${m.size ? (m.size/1e9).toFixed(1) + 'GB' : '0GB'})`).join(', '));
       
       // Filter out embedding models that don't support chat
       const chatModels = this.filterChatModels(allModels);
-      console.log('Chat-capable models:', chatModels.length);
+      console.log('[Ollama] Chat-capable models:', chatModels.map((m: any) => m.name).join(', '));
       
       return chatModels;
     } catch (error) {
@@ -142,7 +158,7 @@ export class OllamaService {
   async chat(
     model: string,
     messages: { role: "system" | "user" | "assistant"; content: string; images?: string[] }[],
-    options?: { temperature?: number; top_p?: number; top_k?: number; repeat_penalty?: number }
+    options?: { temperature?: number; top_p?: number; top_k?: number; repeat_penalty?: number; num_predict?: number }
   ): Promise<string> {
     // Normalize model name for Ollama
     const normalizedModel = this.normalizeModelName(model);
@@ -165,6 +181,7 @@ export class OllamaService {
         top_p: options?.top_p ?? 0.9,
         top_k: options?.top_k ?? 40,
         repeat_penalty: options?.repeat_penalty ?? 1.1,
+        // num_predict is NOT set - allows model to use its full context window
       },
     };
 
@@ -390,8 +407,12 @@ Extract key information about the user, their preferences, and ongoing topics. R
     // CONCISE system prompt to save tokens
     const parts: string[] = [];
     
-    // Core identity
-    parts.push(`You are ${persona.name}, an AI Digital Assistant.`);
+    // Core identity - use personality prompt if available, otherwise fallback
+    if (persona.personality_prompt) {
+      parts.push(persona.personality_prompt);
+    } else {
+      parts.push(`You are ${persona.name}, an AI Digital Assistant.`);
+    }
     parts.push("Respond naturally without referencing technical modes or input methods.");
 
     if (rulesContext) {

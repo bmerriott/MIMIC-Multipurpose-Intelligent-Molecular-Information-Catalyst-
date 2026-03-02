@@ -281,6 +281,8 @@ const VrmAvatarWrapper = memo(function VrmAvatarWrapper({
   vrmaPaths,
   enabledBaseVrmas,
   autoAnimation,
+  onPositionUpdate,
+  userControllingCamera,
 }: { 
   modelId: string | undefined;
   isListening: boolean;
@@ -289,6 +291,8 @@ const VrmAvatarWrapper = memo(function VrmAvatarWrapper({
   vrmaPaths?: Record<string, string>;
   enabledBaseVrmas: string[];
   autoAnimation: boolean;
+  onPositionUpdate?: (position: THREE.Vector3) => void;
+  userControllingCamera?: boolean;
 }) {
   const [modelUrl, setModelUrl] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -348,6 +352,8 @@ const VrmAvatarWrapper = memo(function VrmAvatarWrapper({
       personaVrmas={vrmaPaths}
       enabledBaseVrmas={enabledBaseVrmas}
       autoAnimationEnabled={autoAnimation}
+      onPositionUpdate={onPositionUpdate}
+      userControllingCamera={userControllingCamera}
     />
   );
 });
@@ -417,7 +423,19 @@ function GenericAvatarWrapper({
 // SCENE
 // ============================================
 
-function Scene() {
+function Scene({ 
+  orbitControlsRef, 
+  onControlsStart,
+  onControlsEnd,
+  updateTargetPosition,
+  userControllingCamera,
+}: { 
+  orbitControlsRef: React.RefObject<any>;
+  onControlsStart?: () => void;
+  onControlsEnd?: () => void;
+  updateTargetPosition?: (pos: THREE.Vector3) => void;
+  userControllingCamera?: boolean;
+}) {
   const { currentPersona, isListening, isSpeaking } = useStore();
   
   // Get avatar config with defaults
@@ -479,6 +497,8 @@ function Scene() {
           vrmaPaths={vrmaPaths}
           enabledBaseVrmas={enabledBaseVrmas}
           autoAnimation={autoAnimation}
+          onPositionUpdate={updateTargetPosition}
+          userControllingCamera={userControllingCamera}
         />
       )}
       
@@ -505,15 +525,17 @@ function Scene() {
       />
       
       <OrbitControls
+        ref={orbitControlsRef}
         enableZoom={true}
         enablePan={true}
         autoRotate={false}
         minPolarAngle={0}
         maxPolarAngle={Math.PI}
-        minDistance={0.3}
+        minDistance={0.5}
         maxDistance={20}
-        enableDamping
-        dampingFactor={0.05}
+        enableDamping={false}
+        onStart={onControlsStart}
+        onEnd={onControlsEnd}
       />
     </>
   );
@@ -615,15 +637,105 @@ export function AvatarScene() {
         </div>
       )}
       
+      <AvatarCanvas />
+      
+      <div className="absolute bottom-4 left-4 text-xs text-muted-foreground bg-card/50 backdrop-blur-sm px-3 py-2 rounded-lg">
+        <p>Left-Click: Rotate • Right-click: Move • Scroll: Zoom</p>
+      </div>
+    </div>
+  );
+}
+
+function AvatarCanvas() {
+  const orbitControlsRef = useRef<any>(null);
+  const isInteractingRef = useRef(false);
+  const avatarPositionRef = useRef(new THREE.Vector3(0, 0, 0));
+  const [userControllingCamera, setUserControllingCamera] = useState(false);
+  const [showResetButton, setShowResetButton] = useState(false);
+  
+  const handleStart = () => {
+    isInteractingRef.current = true;
+    setUserControllingCamera(true);
+  };
+  
+  const handleEnd = () => {
+    // Show reset button when user has moved camera
+    setShowResetButton(true);
+    // Camera stays where user placed it - no auto-return
+    // Avatar will resume auto-facing
+    setUserControllingCamera(false);
+    // Keep isInteractingRef true to prevent camera follow until reset
+  };
+  
+  const resetCamera = () => {
+    if (orbitControlsRef.current) {
+      const controls = orbitControlsRef.current;
+      // Reset to default view
+      controls.target.set(0, 1.5, 0);
+      controls.object.position.set(0, 1.5, 6);
+      controls.update();
+      setShowResetButton(false);
+      // Now allow camera to follow avatar again
+      isInteractingRef.current = false;
+    }
+  };
+  
+  // Update target ref from Scene - also handles camera follow
+  const updateTargetPosition = (pos: THREE.Vector3) => {
+    avatarPositionRef.current.copy(pos);
+    
+    // Only auto-follow when user is NOT interacting
+    if (orbitControlsRef.current && !isInteractingRef.current) {
+      const controls = orbitControlsRef.current;
+      const target = controls.target;
+      
+      // Smoothly move target to follow avatar (face height)
+      const facePos = pos.clone().add(new THREE.Vector3(0, 1.5, 0));
+      const oldTarget = target.clone();
+      target.x += (facePos.x - target.x) * 0.05;
+      target.y += (facePos.y - target.y) * 0.05;
+      target.z += (facePos.z - target.z) * 0.05;
+      
+      // Calculate target movement delta
+      const deltaX = target.x - oldTarget.x;
+      const deltaY = target.y - oldTarget.y;
+      const deltaZ = target.z - oldTarget.z;
+      
+      // Move camera by same delta to maintain relative position (preserves zoom/angle)
+      controls.object.position.x += deltaX;
+      controls.object.position.y += deltaY;
+      controls.object.position.z += deltaZ;
+      
+      controls.update();
+    }
+  };
+  
+  return (
+    <>
       <Canvas 
         camera={{ position: [0, 1.5, 6], fov: 50 }}
       >
-        <Scene />
+        <Scene 
+          orbitControlsRef={orbitControlsRef} 
+          onControlsStart={handleStart}
+          onControlsEnd={handleEnd}
+          updateTargetPosition={updateTargetPosition}
+          userControllingCamera={userControllingCamera}
+        />
       </Canvas>
-      
-      <div className="absolute bottom-4 left-4 text-xs text-muted-foreground bg-card/50 backdrop-blur-sm px-3 py-2 rounded-lg">
-        <p>Left drag: Rotate • Scroll: Zoom • Shift/Right-click drag: Move</p>
-      </div>
-    </div>
+      {showResetButton && (
+        <button
+          onClick={resetCamera}
+          className="absolute top-4 right-4 z-30 bg-card/80 hover:bg-card text-foreground px-3 py-2 rounded-lg shadow-lg backdrop-blur-sm text-sm font-medium transition-colors flex items-center gap-2"
+          title="Reset camera to default position"
+        >
+          <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 12"/>
+            <path d="M3 3v9h9"/>
+          </svg>
+          Reset View
+        </button>
+      )}
+    </>
   );
 }

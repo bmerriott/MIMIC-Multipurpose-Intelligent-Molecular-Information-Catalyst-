@@ -163,8 +163,9 @@ class SearXNGService {
 
   /**
    * Search using SearXNG via backend proxy or direct
+   * If deepSearch is true, fetches and summarizes page content
    */
-  async search(request: { query: string }): Promise<SearchContext> {
+  async search(request: { query: string; deepSearch?: boolean }): Promise<SearchContext> {
     if (!this.enabled) {
       throw new Error('SearXNG search is disabled');
     }
@@ -176,6 +177,8 @@ class SearXNGService {
       }
     }
 
+    let searchData: any = null;
+
     // Try direct SearXNG first (no CORS in Tauri WebView)
     try {
       const directUrl = `http://localhost:8080/search?q=${encodeURIComponent(request.query)}&format=json`;
@@ -186,38 +189,45 @@ class SearXNGService {
       });
       
       if (directResponse.ok) {
-        const data = await directResponse.json();
+        searchData = await directResponse.json();
         console.log('[SearXNG] Direct search successful');
-        return this.formatResults(request.query, data);
       }
     } catch (e) {
       console.log('[SearXNG] Direct search failed, trying backend proxy...');
     }
 
-    // Fall back to backend proxy
-    try {
-      const url = this.getUrl('');
-      console.log('[SearXNG] Searching at:', url);
-      const response = await fetch(url, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ query: request.query }),
-        signal: AbortSignal.timeout(15000)
-      });
+    // Fall back to backend proxy if direct failed
+    if (!searchData) {
+      try {
+        const url = this.getUrl('');
+        console.log('[SearXNG] Searching at:', url);
+        const response = await fetch(url, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ query: request.query }),
+          signal: AbortSignal.timeout(15000)
+        });
 
-      if (!response.ok) {
-        const errorText = await response.text();
-        throw new Error(`Search failed: ${response.status} - ${errorText}`);
+        if (!response.ok) {
+          const errorText = await response.text();
+          throw new Error(`Search failed: ${response.status} - ${errorText}`);
+        }
+
+        searchData = await response.json();
+        console.log('[SearXNG] Search results:', searchData);
+      } catch (error) {
+        console.error('[SearXNG] Search failed:', error);
+        throw error;
       }
-
-      const data = await response.json();
-      console.log('[SearXNG] Search results:', data);
-      
-      return this.formatResults(request.query, data);
-    } catch (error) {
-      console.error('[SearXNG] Search failed:', error);
-      throw error;
     }
+
+    // If deepSearch enabled, fetch and summarize page content
+    if (request.deepSearch !== false && searchData?.results?.length > 0) {
+      console.log('[SearXNG] Deep search enabled - fetching page content...');
+      return this.fetchAndSummarize(request.query, searchData.results);
+    }
+
+    return this.formatResults(request.query, searchData);
   }
 
   /**
@@ -245,13 +255,48 @@ class SearXNGService {
   }
 
   /**
+   * Fetch and summarize search results with full page content
+   * Uses backend to fetch page content and format for LLM
+   */
+  async fetchAndSummarize(query: string, results: any[]): Promise<SearchContext> {
+    try {
+      const url = `${this.backendUrl}/api/search/summarize`;
+      console.log('[SearXNG] Fetching and summarizing results...');
+      
+      const response = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ query, results }),
+        signal: AbortSignal.timeout(30000) // 30s timeout for fetching pages
+      });
+
+      if (!response.ok) {
+        throw new Error(`Summarization failed: ${response.status}`);
+      }
+
+      const data = await response.json();
+      console.log('[SearXNG] Summarized', data.summaries?.length || 0, 'pages');
+      
+      return {
+        query,
+        results: data.formatted_context,
+        sources: results.map(r => r.url).filter(Boolean)
+      };
+    } catch (error) {
+      console.error('[SearXNG] Fetch/summarize failed:', error);
+      // Fall back to basic formatting
+      return this.formatResults(query, { results });
+    }
+  }
+
+  /**
    * Format for inclusion in AI system prompt
    */
   formatForPrompt(context: SearchContext): string {
     if (!context.results) {
       return '';
     }
-    return `Query: "${context.query}"\n${context.results}`;
+    return context.results;
   }
 
   /**

@@ -6,8 +6,10 @@ import { ttsService, type Qwen3ModelSize } from "@/services/tts";
 import { searxngService } from "@/services/searxng";
 import { memoryService } from "@/services/memory";
 import { memoryToolsService, type ToolCall } from "@/services/memoryTools";
+import { smartRouter, type RouteResult } from "@/services/smartRouter";
 import { localSpeechRecognizer } from "@/services/localSpeechRecognition";
 import { audioEffects } from "@/services/audioEffects";
+import { buildAgentSystemPrompt, buildRouterGuidance } from "@/services/agentSystem";
 
 // Type declarations
 interface SpeechRecognitionEvent extends Event { results: SpeechRecognitionResultList; resultIndex: number; }
@@ -23,7 +25,7 @@ interface SpeechRecognitionConstructor { new (): SpeechRecognition; }
 declare global { interface Window { SpeechRecognition: SpeechRecognitionConstructor; webkitSpeechRecognition: SpeechRecognitionConstructor; } }
 
 export function WakeWordListener() {
-  const { personas, currentPersona, setCurrentPersona, settings, isListening, setIsListening, setIsSpeaking, setIsGeneratingVoice, addMessage, addMemoryEntry, updatePersona, loadVoiceAudio, appState } = useStore();
+  const { personas, currentPersona, setCurrentPersona, settings, isListening, setIsListening, setIsSpeaking, setIsGeneratingVoice, addMessage, addMemoryEntry, updatePersona, loadVoiceAudio, appState, messages } = useStore();
   const recognitionRef = useRef<SpeechRecognition | null>(null);
   const isProcessingRef = useRef(false);
   const shouldBeListeningRef = useRef(false);
@@ -61,7 +63,6 @@ export function WakeWordListener() {
     ttsBackendAvailableRef.current = appState.tts_backend_connected;
     // If backend becomes available, use Puter.js-based recognition
     if (appState.tts_backend_connected && !useLocalRecognitionRef.current) {
-      console.log('🎤 TTS backend connected - using Puter.js for speech recognition');
       useLocalRecognitionRef.current = true;
     }
   }, [appState.tts_backend_connected]);
@@ -158,18 +159,13 @@ export function WakeWordListener() {
   }, []);
 
   processCommandRef.current = async (transcript: string) => {
-    console.log('🎤 PROCESSING COMMAND:', transcript);
-    console.log('🎤 isProcessingRef.current:', isProcessingRef.current);
-    
     const persona = currentPersonaRef.current;
     if (!persona) {
-      console.error('🎤 No current persona!');
       toast.error("No persona selected");
       return;
     }
     
     if (isProcessingRef.current) {
-      console.log('🎤 Already processing, skipping');
       return;
     }
     
@@ -187,7 +183,7 @@ export function WakeWordListener() {
     const cleanedTranscript = stripPromptTags(transcript);
     
     // Add user message to chat (show original transcript without tag)
-    addMessage({ role: "user", content: cleanedTranscript });
+    addMessage({ role: "user", content: cleanedTranscript, inputType: "voice" });
     
     // Add to memory if enabled
     if (settingsRef.current.enable_memory) {
@@ -199,12 +195,9 @@ export function WakeWordListener() {
     }
 
     let response: string | null = null;
+    let placeholderId: string | null = null;
 
     try {
-      console.log('🎤 Starting Ollama chat...');
-      console.log('🎤 Persona:', persona.name);
-      console.log('🎤 Model:', settingsRef.current.default_model);
-      
       ollamaService.setBaseUrl(settingsRef.current.ollama_url);
       
       // Check if web search is enabled and might be needed
@@ -212,147 +205,128 @@ export function WakeWordListener() {
       if (settingsRef.current.enable_web_search && searxngService.isEnabled()) {
         // Check if query needs current info
         if (searxngService.needsCurrentInfo(cleanedTranscript)) {
-          console.log('🎤 Performing web search for current info...');
           toast.info("Searching for current information...", { duration: 2000 });
           try {
-            const searchResult = await searxngService.search({ query: cleanedTranscript });
+            const searchResult = await searxngService.search({ query: cleanedTranscript, deepSearch: true });
             searchContext = searxngService.formatForPrompt(searchResult);
-            console.log('🎤 Search context:', searchContext);
-          } catch (searchError) {
-            console.error('🎤 Web search failed:', searchError);
+          } catch {
             // Continue without search context
           }
         }
       }
       
-      // Fetch persona rules as system instruction context
-      let rulesContext = "";
+      // Include ALL conversation history for voice (same as text)
+      const conversationHistory = messages.map((msg) => {
+        const timestamp = msg.timestamp || new Date().toISOString();
+        const timeStr = new Date(timestamp).toLocaleString();
+        return {
+          role: msg.role as "user" | "assistant" | "system",
+          content: `[${timeStr}] ${msg.content}`,
+        };
+      });
+
+      // SMART ROUTING - Use lightweight LLM to classify intent for voice input
+      let routeResult: RouteResult | null = null;
       try {
-        const { personaRulesService } = await import('@/services/personaRules');
-        const personaRules = await personaRulesService.getOrGenerateRules({
-          id: persona.id,
-          name: persona.name,
-          personality_prompt: persona.personality_prompt,
-          description: persona.description,
-        });
-        rulesContext = personaRules;
-      } catch (error) {
-        console.error('Failed to load persona rules:', error);
+        routeResult = await smartRouter.route(
+          cleanedTranscript,
+          "voice",
+          persona,
+          false, // no images in voice path currently
+          conversationHistory.slice(-10), // router only needs recent context
+          settingsRef.current.router_model
+        );
+        
+        // Override search decision if router suggests it
+        if (routeResult.needsWebSearch && !searchContext) {
+          try {
+            const searchResult = await searxngService.search({ query: cleanedTranscript, deepSearch: true });
+            searchContext = searxngService.formatForPrompt(searchResult);
+          } catch {
+            // Continue without search context
+          }
+        }
+      } catch {
+        // Router failed, use defaults
+      }
+      
+      // Use router to summarize search results if available
+      let processedSearchContext = searchContext;
+      if (searchContext && searchContext.length > 2000) {
+        try {
+          processedSearchContext = await smartRouter.summarizeSearchResults(
+            cleanedTranscript,
+            searchContext,
+            settingsRef.current.router_model
+          );
+        } catch {
+          processedSearchContext = searchContext.substring(0, 4000) + "\n...[truncated]";
+        }
       }
 
-      // Check if query is about memory files - only then include detailed tool policy
-      const queryLower = cleanedTranscript.toLowerCase();
-      const isMemoryQuery = queryLower.includes('memory') || 
-                            queryLower.includes('file') || 
-                            queryLower.includes('document') ||
-                            queryLower.includes('saved') ||
-                            queryLower.includes('note') ||
-                            queryLower.includes('test1') ||
-                            queryLower.includes('test2') ||
-                            queryLower.includes('test.') ||
-                            queryLower.includes('.txt') ||
-                            queryLower.includes('content') ||
-                            queryLower.includes('contents') ||
-                            queryLower.includes('says') ||
-                            queryLower.includes('what is in') ||
-                            queryLower.includes('what does') ||
-                            (queryLower.includes('read') && queryLower.includes('file'));
+      // Build agent-aware system prompt
+      const agentContext = {
+        hasMemoryAccess: settingsRef.current.enable_memory,
+        hasWebSearch: !!searchContext,
+        hasVision: false,
+        canWriteFiles: false,
+        toolPermissionRequired: true,
+      };
       
-      let toolPolicy = "";
-      if (isMemoryQuery) {
-        // Proactively fetch memory files list for memory-related queries
-        let memoryFilesList = "";
+      let systemPrompt = buildAgentSystemPrompt(persona, agentContext);
+      
+      // Add router guidance if available
+      if (routeResult?.suggestedApproach && routeResult.confidence > 0.6) {
+        const routerGuidance = buildRouterGuidance(
+          routeResult.suggestedApproach,
+          routeResult.emotionalTone,
+          routeResult.confidence
+        );
+        if (routerGuidance) {
+          systemPrompt += routerGuidance;
+        }
+      }
+      
+      // Add memory files if available
+      if (agentContext.hasMemoryAccess) {
         try {
-          const memoryFiles = await memoryToolsService.listMemories();
-          if (memoryFiles.length > 0) {
-            memoryFilesList = memoryFiles.map(f => `- ${f.name}`).join('\n');
-          } else {
-            memoryFilesList = "(No memory files found)";
+          const memoryFiles = await memoryToolsService.listMemories(persona.id || "default");
+          const fileNames = memoryFiles.map(f => f.name);
+          if (fileNames.length > 0) {
+            systemPrompt += `\n\nAvailable files: ${fileNames.join(", ")}`;
           }
         } catch (e) {
-          memoryFilesList = "(Unable to list memory files)";
+          // Memory access unavailable
         }
-        
-        const fileNames = memoryFilesList.split(/\n/).map(f => f.replace('- ', '').trim()).filter(f => f);
-        toolPolicy = [
-          "MANDATORY TOOL PROTOCOL - YOU MUST FOLLOW THIS:",
-          "Files in memory folder: " + fileNames.join(", "),
-          "",
-          "IMPORTANT: You have ZERO knowledge of file contents.",
-          "You cannot see, guess, or infer what files contain.",
-          "Filename patterns (like 'taco', 'banana') mean NOTHING to you.",
-          "",
-          "TO ANSWER THIS QUESTION:",
-          "1. Output ONLY this exact JSON:",
-          '   {"name":"read_memory","arguments":{"filename":"test.txt"}}',
-          "2. NOTHING ELSE. No text, no explanation, no guessing.",
-          "3. The system will give you the actual file content.",
-          "",
-          "WHEN REPORTING FILE CONTENTS:",
-          "- Quote the EXACT text from the file, verbatim",
-          "- Do not paraphrase, interpret, or be conversational",
-          "- Do not add commentary about 'fun messages' or 'enthusiasm'",
-          "- Just state: 'The file contains: [exact content]'",
-          "",
-          "IF YOU HAVEN'T RECEIVED TOOL_RESULT:",
-          "- You don't know the answer.",
-          "- Say 'I need to check that file for you.' and use the tool.",
-          "",
-          "NEVER:",
-          "- Guess file contents based on filenames",
-          "- Make up content about tacos, bananas, or anything",
-          "- Respond as if you know the content without using the tool",
-          "- Continue the conversation without calling the tool",
-          "- Paraphrase or interpret the content - quote it exactly",
-        ].join("\n");
-      } else {
-        // Minimal tool info for non-memory queries
-        toolPolicy = "Memory tools available. Use read_memory to access file contents when needed.";
       }
-      
-      // Build system prompt with optional search context
-      const systemPrompt = ollamaService.buildPersonaSystemPrompt(
-        persona, 
-        false, // hasImages
-        settingsRef.current.enable_memory, // includeMemory
-        searchContext || undefined,
-        undefined, // no user files in voice path
-        rulesContext || undefined,
-        toolPolicy
-      );
-      
-      // Log the complete prompt structure being sent to Ollama
-      console.log('');
-      console.log('╔══════════════════════════════════════════════════════════════╗');
-      console.log('║                    PROMPT SENT TO OLLAMA                      ║');
-      console.log('╠══════════════════════════════════════════════════════════════╣');
-      console.log('║ SYSTEM PROMPT:');
-      console.log('╠──────────────────────────────────────────────────────────────╣');
-      console.log(systemPrompt.split('\n').map((line: string) => '║ ' + line.substring(0, 75)).join('\n'));
-      console.log('╠──────────────────────────────────────────────────────────────╣');
-      console.log('║ USER MESSAGE:');
-      console.log('╠──────────────────────────────────────────────────────────────╣');
-      console.log('║ ' + cleanedTranscript);
-      if (searchContext) {
-        console.log('╠──────────────────────────────────────────────────────────────╣');
-        console.log('║ SEARCH CONTEXT INCLUDED: Yes');
-        console.log('║ ' + searchContext.substring(0, 150) + '...');
+
+      // Build user message with context
+      let userMessageContent = cleanedTranscript;
+      if (processedSearchContext) {
+        userMessageContent = `[Search Results]\n${processedSearchContext}\n\n[Question]\n${cleanedTranscript}`;
       }
-      console.log('╚══════════════════════════════════════════════════════════════╝');
-      console.log('');
-      
+
       const chatMessages = [
-        { role: "system" as const, content: systemPrompt }, 
-        { role: "user" as const, content: cleanedTranscript }
+        { role: "system" as const, content: systemPrompt },
+        ...conversationHistory,
+        { role: "user" as const, content: userMessageContent },
       ];
       
-      // Show generating toast
+      // Show generating toast AND chat placeholder
       const generatingToast = toast.loading(`${persona.name} is thinking...`, {
         duration: 60000, // 1 minute max
       });
       
-      // Generate text response
-      console.log('🎤 Calling Ollama chat...');
+      // Add placeholder to chat while generating
+      placeholderId = `voice-${Date.now()}`;
+      addMessage({ 
+        role: "assistant", 
+        content: "", 
+        isLoading: true,
+        id: placeholderId 
+      });
+      
+      // Generate text response - NO num_predict limit (model uses full context window)
       response = await chatWithReadOnlyTools(
         settingsRef.current.default_model, 
         chatMessages, 
@@ -360,15 +334,6 @@ export function WakeWordListener() {
       );
       
       toast.dismiss(generatingToast);
-      
-      // Log the complete response from Ollama
-      console.log('');
-      console.log('╔══════════════════════════════════════════════════════════════╗');
-      console.log('║                 RESPONSE RECEIVED FROM OLLAMA                 ║');
-      console.log('╠══════════════════════════════════════════════════════════════╣');
-      console.log(response ? response.split('\n').map((line: string) => '║ ' + line.substring(0, 75)).join('\n') : '║ (empty response)');
-      console.log('╚══════════════════════════════════════════════════════════════╝');
-      console.log('');
 
       // Add to memory if enabled
       if (settingsRef.current.enable_memory && response) {
@@ -386,20 +351,43 @@ export function WakeWordListener() {
               if (freshPersona) {
                 updatePersona({ ...freshPersona, memory: updatedMemory });
               }
-            }).catch(console.error);
+            }).catch(() => {
+              // Summarization failed, continue without update
+            });
         }
       }
 
       // Generate voice and output both text and audio
       if (response) {
         await speakResponse(response, persona, (text) => {
-          // Callback called right before audio starts playing
-          addMessage({ role: "assistant", content: text });
+          // Replace placeholder with actual message when audio starts
+          const messages = useStore.getState().messages;
+          const idx = messages.findIndex(m => m.id === placeholderId);
+          if (idx !== -1) {
+            useStore.setState(state => ({
+              messages: state.messages.map((m, i) => 
+                i === idx ? { ...m, content: text, isLoading: false } : m
+              )
+            }));
+          } else {
+            // Fallback: add new message if placeholder not found
+            addMessage({ role: "assistant", content: text });
+          }
         });
+      } else {
+        // No response - remove placeholder
+        useStore.setState(state => ({
+          messages: state.messages.filter(m => m.id !== placeholderId)
+        }));
       }
     } catch (error) {
-      console.error('🎤 Error processing command:', error);
       toast.error(`Sorry, I couldn't process that: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      // Remove placeholder on error
+      if (placeholderId) {
+        useStore.setState(state => ({
+          messages: state.messages.filter(m => m.id !== placeholderId)
+        }));
+      }
     } finally {
       isProcessingRef.current = false;
       isWaitingForCommandRef.current = false;
@@ -422,7 +410,6 @@ export function WakeWordListener() {
   useEffect(() => {
     const handleInteraction = () => {
       if (!userInteractedRef.current) {
-        console.log('🎵 User interaction detected - audio enabled');
         userInteractedRef.current = true;
       }
     };
@@ -452,14 +439,12 @@ export function WakeWordListener() {
     if (!isProcessingRef.current) {
       userEnabledListeningRef.current = isListening;
       localStorage.setItem('mimic_user_enabled_listening', isListening ? 'true' : 'false');
-      console.log('🎤 User listening preference updated:', isListening);
     }
   }, [isListening]);
 
   const speakResponse = async (text: string, persona: typeof currentPersona, onBeforePlay?: (text: string) => void): Promise<void> => {
     // Check if TTS is disabled
     if (settingsRef.current.tts_engine === 'off') {
-      console.log('🎵 TTS is disabled (off), skipping voice generation');
       onBeforePlay?.(text);
       return;
     }
@@ -472,7 +457,6 @@ export function WakeWordListener() {
     
     // Check if user has interacted - if not, show toast and skip audio
     if (!userInteractedRef.current) {
-      console.log('🎵 Audio skipped - waiting for user interaction');
       onBeforePlay?.(text); // Still show text
       toast.info('Click the microphone button to enable voice responses', {
         duration: 5000,
@@ -485,27 +469,15 @@ export function WakeWordListener() {
     const voiceConfig = persona?.voice_create?.voice_config;
     const voiceParams = voiceConfig?.params;
     
-    // Determine which engine to use
-    const hasVoicecreate = !!persona?.voice_create?.has_audio;
-    const isSyntheticVoice = persona?.voice_id === "synthetic" || persona?.voice_id === "created";
-    const useQwen3 = hasVoicecreate && isSyntheticVoice && settingsRef.current.tts_engine === "qwen3";
-    
-    // Debug logging for voice selection
-    console.log('🎵 Voice selection check:', {
-      personaName: persona?.name,
-      personaId: persona?.id,
-      hasVoicecreate,
-      voiceId: persona?.voice_id,
-      ttsEngine: settingsRef.current.tts_engine,
-      useQwen3,
-      voiceParams: voiceParams ? 'present' : 'missing'
-    });
+    // Determine which engine to use - simplified logic
+    const useQwen3 = settingsRef.current.tts_engine === "qwen3";
+    const useKitten = settingsRef.current.tts_engine === "kitten";
+
     
     try {
       let audioData: string | null = null;
       
       // PHASE 1: GENERATION - Generate all audio first (blocking)
-      console.log('🎵 Starting voice generation...');
       setIsGeneratingVoice(true);
       
       ttsService.setBaseUrl(settingsRef.current.tts_backend_url);
@@ -519,23 +491,19 @@ export function WakeWordListener() {
           let referenceText: string | undefined = undefined;
           
           // Guard: If Qwen3 is selected but no reference audio available, fallback to browser TTS
-          let effectiveEngine: "qwen3" | "browser" = useQwen3 ? "qwen3" : "browser";
+          let effectiveEngine: "qwen3" | "kitten" = useQwen3 ? "qwen3" : "kitten";
           
           if (voiceData?.audio_data) {
             referenceAudio = voiceData.audio_data;
             referenceText = voiceData.reference_text || persona!.voice_create?.reference_text || undefined;
-            console.log('🎵 Reference audio loaded:', referenceAudio.length, 'chars');
           } else {
-            console.warn('🎵 No reference audio found');
             if (useQwen3) {
-              console.warn('🎵 Qwen3 requires reference audio - falling back to Browser TTS');
-              effectiveEngine = 'browser';
-              toast.info('Qwen3 requires a voice sample. Using Browser TTS fallback.');
+              effectiveEngine = 'kitten';
+              toast.info('Qwen3 requires a voice sample. Using KittenTTS fallback.');
             }
           }
           
           // Use the unified createVoice API (same as ChatPanel)
-          const ttsStartTime = performance.now();
           const response = await ttsService.createVoice(text, {
             reference_audio: referenceAudio,
             reference_text: referenceText,
@@ -567,20 +535,33 @@ export function WakeWordListener() {
             seed: voiceParams?.seed,
           });
           
-          console.log(`[TIMING] Voice creation (${response.engine_used}): ${(performance.now() - ttsStartTime).toFixed(0)}ms`);
-          
           audioData = response.audio_data;
-          console.log('🎵 Voice generation complete');
         } catch (error) {
-          console.error("Voice creation failed:", error);
-          toast.error(`Voice generation failed: ${error instanceof Error ? error.message : 'Unknown error'}. Using browser TTS.`);
-          // Fall through to browser TTS
+          setIsGeneratingVoice(false);
+          toast.error(`Voice generation failed: ${error instanceof Error ? error.message : 'Unknown error'}. TTS disabled.`);
+          onBeforePlay?.(text); // Still show text even if voice fails
+          return;
+        }
+      } else if (useKitten) {
+        // KittenTTS voice generation
+        try {
+          const voice = settingsRef.current.kitten_voice || "Bella";
+          const model = settingsRef.current.kitten_model || "nano";
+          const speed = settingsRef.current.kitten_speed || 1.0;
+          
+          const response = await ttsService.generateKittenTTS(text, voice, model, speed);
+          audioData = response.audio_data;
+        } catch (error) {
+          setIsGeneratingVoice(false);
+          toast.error(`KittenTTS failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
+          onBeforePlay?.(text); // Still show text even if voice fails
+          return;
         }
       }
       
       // PHASE 2: PLAYBACK - Output text and audio simultaneously
       setIsGeneratingVoice(false);
-      setIsSpeaking(true);
+      setIsSpeaking(true, text, audioData || null);  // Pass text and audio data for lip sync
       
       // Show text in chat right before audio starts
       onBeforePlay?.(text);
@@ -591,8 +572,6 @@ export function WakeWordListener() {
         const voiceTuning = persona ? getPersonaVoiceTuning(persona.id) : null;
         
         if (voiceTuning) {
-          // Apply post-processing effects during playback
-          console.log('🎵 Applying voice tuning during playback:', voiceTuning);
           try {
             await audioEffects.playWithEffects(audioData, {
               pitchShift: voiceTuning.pitchShift,
@@ -618,8 +597,7 @@ export function WakeWordListener() {
               }, 100);
               setTimeout(() => { clearInterval(checkEnded); resolve(); }, 300000);
             });
-          } catch (error) {
-            console.error('🎵 Audio effects playback failed:', error);
+          } catch {
             // Fall back to standard audio
             const audio = new Audio(`data:audio/wav;base64,${audioData}`);
             audio.volume = settingsRef.current.voice_volume;
@@ -639,12 +617,52 @@ export function WakeWordListener() {
             audio.play().catch(reject);
           });
         }
+      } else if (settingsRef.current.tts_engine === 'kitten') {
+        // KittenTTS (Local) - Uses audio-based lip sync
+        // Get fresh settings at generation time to pick up voice changes
+        const currentSettings = useStore.getState().settings;
+        const voice = currentSettings.kitten_voice || "Bella";
+        const model = currentSettings.kitten_model || "nano";
+        
+        try {
+          const kittenResponse = await ttsService.generateKittenTTS(text, voice, model);
+          audioData = kittenResponse.audio_data;
+          
+          // Show text first, then start lip sync and audio together
+          onBeforePlay?.(text);
+          
+          // Use global audio player so VrmAvatar can analyze the audio
+          const { playAudio } = useStore.getState();
+          playAudio({
+            data: audioData,
+            title: "AI Response",
+            source: 'tts'
+          });
+          
+          // Start lip sync after a short delay to let audio begin
+          setTimeout(() => {
+            setIsSpeaking(true, text, audioData);
+          }, 50);
+          
+          // Wait for playback to complete
+          await new Promise<void>((resolve) => {
+            const checkEnded = setInterval(() => {
+              const state = useStore.getState();
+              if (!state.audioPlayer.isPlaying && state.audioPlayer.audioData === audioData) {
+                clearInterval(checkEnded);
+                resolve();
+              }
+            }, 100);
+            setTimeout(() => { clearInterval(checkEnded); resolve(); }, 300000);
+          });
+        } catch (kittenError) {
+          toast.error(`KittenTTS failed: ${kittenError instanceof Error ? kittenError.message : 'Unknown error'}. TTS disabled.`);
+        }
       } else {
-        // Browser TTS fallback
-        await ttsService.speakWithBrowserTTS(text, settingsRef.current.voice_volume, settingsRef.current.speech_rate);
+        // TTS is off - just show text without audio
+        onBeforePlay?.(text);
       }
-    } catch (error) {
-      console.error('TTS failed:', error);
+    } catch {
       // Still show text even if audio failed
       onBeforePlay?.(text);
     } finally {
@@ -661,7 +679,6 @@ export function WakeWordListener() {
   };
 
   const handleSwitchPersona = (targetWakeWord: string) => {
-    console.log('Switching to persona with wake word:', targetWakeWord);
     
     const targetPersona = personas.find(p => 
       p.wake_words?.some(w => w.toLowerCase() === targetWakeWord.toLowerCase())
@@ -680,7 +697,6 @@ export function WakeWordListener() {
         speakResponse(randomResponse, targetPersona, (text) => addMessage({ role: "assistant", content: text })).catch(console.error);
       }
     } else {
-      console.log('No persona found with wake word:', targetWakeWord);
       toast.error(`No persona found with wake word "${targetWakeWord}"`);
       speakResponse(`I couldn't find a persona called ${targetWakeWord}.`, currentPersona, (text) => addMessage({ role: "assistant", content: text })).catch(console.error);
     }
@@ -691,7 +707,6 @@ export function WakeWordListener() {
   // Initialize recognition mode based on backend availability
   useEffect(() => {
     if (appState.tts_backend_connected) {
-      console.log('🎤 TTS backend available - using Puter.js for speech recognition');
       useLocalRecognitionRef.current = true;
     }
   }, []); // Run once on mount
@@ -700,7 +715,6 @@ export function WakeWordListener() {
   // This ensures user has clicked/interacted with the page before any audio plays
   // (Required for browser autoplay policies)
   useEffect(() => {
-    console.log('🎤 Microphone starts disabled - user must click mic button to enable');
     // Always reset to disabled on launch
     setIsListening(false);
     userEnabledListeningRef.current = false;
@@ -714,13 +728,11 @@ export function WakeWordListener() {
   useEffect(() => {
     // Skip browser SpeechRecognition if we're using Puter.js mode
     if (useLocalRecognitionRef.current) {
-      console.log('🎤 Using Puter.js recognition - skipping browser SpeechRecognition');
       return;
     }
     
     const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
     if (!SpeechRecognition) {
-      console.error('SpeechRecognition not supported');
       return;
     }
 
@@ -742,7 +754,6 @@ export function WakeWordListener() {
     const now = Date.now();
     const timeSinceLastRestart = now - lastRestartTimeRef.current;
     if (timeSinceLastRestart < 1000) {
-      console.log(`🎤 Restarting too fast (${timeSinceLastRestart}ms), delaying...`);
       const delayTimer = setTimeout(() => {
         if (shouldBeListeningRef.current && !isProcessingRef.current) {
           setIsListening(false);
@@ -756,8 +767,7 @@ export function WakeWordListener() {
     let recognition: SpeechRecognition;
     try {
       recognition = new SpeechRecognition();
-    } catch (e) {
-      console.error('Failed to create SpeechRecognition:', e);
+    } catch {
       return;
     }
     
@@ -769,7 +779,7 @@ export function WakeWordListener() {
     recognition.continuous = true;
 
     recognition.onstart = () => { 
-      console.log('🎤 Listening for wake word:', currentPersonaRef.current?.wake_words?.[0] || "Mimic"); 
+      // Listening started
     };
 
     recognition.onresult = (event: SpeechRecognitionEvent) => {
@@ -781,11 +791,10 @@ export function WakeWordListener() {
 
       // Reset error count when we get any results
       if ((interimTranscript || finalTranscript) && consecutiveErrorCountRef.current > 0) {
-        console.log('🎤 Speech detected - resetting error count');
         consecutiveErrorCountRef.current = 0;
       }
 
-      if (interimTranscript) console.log('Interim:', interimTranscript);
+
 
       if (isWaitingForCommandRef.current) {
         // Clear any existing silence timeout when we get speech
@@ -797,14 +806,11 @@ export function WakeWordListener() {
         if (finalTranscript) {
           commandBufferRef.current += " " + finalTranscript;
           commandBufferRef.current = commandBufferRef.current.trim();
-          console.log('Command buffer:', commandBufferRef.current);
           
           if (commandBufferRef.current.length > 2) {
             // Wait for SILENCE_DELAY ms of silence before processing
-            console.log('Command captured, waiting for silence...');
             silenceTimeoutRef.current = setTimeout(() => {
               if (isWaitingForCommandRef.current && commandBufferRef.current.length > 2) {
-                console.log('Silence detected, processing command:', commandBufferRef.current);
                 const command = commandBufferRef.current;
                 commandBufferRef.current = "";
                 isWaitingForCommandRef.current = false;
@@ -821,7 +827,6 @@ export function WakeWordListener() {
       if (finalTranscript) {
         transcriptBufferRef.current += " " + finalTranscript;
         transcriptBufferRef.current = transcriptBufferRef.current.trim();
-        console.log('Buffer:', transcriptBufferRef.current);
       }
 
       if (transcriptBufferRef.current && !isProcessingRef.current && !isWaitingForCommandRef.current) {
@@ -840,7 +845,6 @@ export function WakeWordListener() {
         }
         
         if (detectedWakeWord) {
-          console.log('WAKE WORD DETECTED:', detectedWakeWord);
           const afterWake = buffer.slice(wakeIndex + detectedWakeWord.length).trim();
           const command = afterWake.replace(/^[,.!?\s]+/, '');
           transcriptBufferRef.current = "";
@@ -848,7 +852,6 @@ export function WakeWordListener() {
           playWakeSound();
           
           if (command) {
-            console.log('Command found, processing:', command);
             
             const switchMatch = command.match(/^switch\s+to\s+(.+)$/i);
             if (switchMatch) {
@@ -859,7 +862,6 @@ export function WakeWordListener() {
             
             setTimeout(() => { processCommandRef.current?.(command); }, 100);
           } else {
-            console.log('No command yet, waiting...');
             isWaitingForCommandRef.current = true;
             commandBufferRef.current = "";
             
@@ -878,7 +880,6 @@ export function WakeWordListener() {
             if (silenceTimeoutRef.current) clearTimeout(silenceTimeoutRef.current);
             commandTimeoutRef.current = setTimeout(() => {
               if (isWaitingForCommandRef.current) {
-                console.log('Command timeout');
                 isWaitingForCommandRef.current = false;
                 commandBufferRef.current = "";
                 isProcessingRef.current = false;
@@ -894,15 +895,12 @@ export function WakeWordListener() {
       if (event.error === "aborted") return;
       
       consecutiveErrorCountRef.current++;
-      console.error(`Recognition error (${consecutiveErrorCountRef.current}):`, event.error);
       
       if (event.error === "not-allowed") {
         toast.error("Microphone permission denied.");
       } else if (event.error === "network") {
-        console.error('Network error - speech recognition service unavailable.');
         // Switch to local recognition after 3 network errors
         if (consecutiveErrorCountRef.current >= 3 && !useLocalRecognitionRef.current) {
-          console.log('🎤 Switching to Puter.js recognition...');
           useLocalRecognitionRef.current = true;
           browserApiFailedRef.current = true;
           toast.info('Switching to Puter.js speech recognition...');
@@ -915,36 +913,28 @@ export function WakeWordListener() {
     };
 
     recognition.onend = () => {
-      console.log('Recognition ended');
       lastRestartTimeRef.current = Date.now();
       
-      if (isWaitingForCommandRef.current && !isProcessingRef.current) {
+      // Always restart if we should be listening (for continuous listening)
+      if (shouldBeListeningRef.current && settingsRef.current.auto_listen) {
+        // Small delay to prevent rapid restart loops
         setTimeout(() => {
-          if (isWaitingForCommandRef.current && !isProcessingRef.current) {
-            try { recognition.start(); } catch (e) {}
+          if (shouldBeListeningRef.current) {
+            try { 
+              recognition.start(); 
+            } catch {
+              // Failed to restart, will try again
+            }
           }
-        }, 200);
+        }, 300);
         return;
       }
       
       // Stop if too many consecutive errors
       if (consecutiveErrorCountRef.current > 10) {
-        console.error('🎤 Too many errors, stopping wake word listener');
         toast.error('Speech recognition failed repeatedly. Please refresh the page.');
         setIsListening(false);
         return;
-      }
-      
-      if (shouldBeListeningRef.current && !isProcessingRef.current && settingsRef.current.auto_listen) {
-        if (restartTimeoutRef.current) clearTimeout(restartTimeoutRef.current);
-        const delay = Math.min(2000, 500 + (consecutiveErrorCountRef.current * 200)); // Progressive backoff
-        console.log(`🎤 Will restart in ${delay}ms (error count: ${consecutiveErrorCountRef.current})`);
-        restartTimeoutRef.current = setTimeout(() => {
-          if (shouldBeListeningRef.current && !isProcessingRef.current) {
-            setIsListening(false);
-            setTimeout(() => setIsListening(true), 100);
-          }
-        }, delay);
       }
     };
 
@@ -955,9 +945,7 @@ export function WakeWordListener() {
     const startTimer = setTimeout(() => { 
       try { 
         recognition.start(); 
-        console.log('🎤 Speech recognition started successfully');
-      } catch (error) {
-        console.error('🎤 Failed to start recognition:', error);
+      } catch {
         consecutiveErrorCountRef.current++;
       }
     }, 300);
@@ -981,7 +969,6 @@ export function WakeWordListener() {
     
     // Update the ref to match current isListening state
     shouldBeListeningRef.current = isListening;
-    console.log('🎤 Puter.js recognition effect - isListening:', isListening, 'shouldBeListening:', shouldBeListeningRef.current);
     
     localSpeechRecognizer.setBackendUrl(settings.tts_backend_url);
     
@@ -989,44 +976,30 @@ export function WakeWordListener() {
       const transcript = result.transcript.trim();
       const lowerTranscript = transcript.toLowerCase();
       
-      console.log('🎤 Puter.js recognition result:', transcript);
-      console.log('🎤 isProcessingRef:', isProcessingRef.current, 'isWaitingForCommand:', isWaitingForCommandRef.current);
-      
       const wakeWords = (currentPersonaRef.current?.wake_words || ["Mimic"]).map(w => w.toLowerCase());
-      console.log('🎤 Wake words to check:', wakeWords);
       
       // Check if wake word is in transcript
       for (const wakeWord of wakeWords) {
-        console.log(`🎤 Checking if "${lowerTranscript}" includes "${wakeWord}"`);
-        
         if (lowerTranscript.includes(wakeWord)) {
           const afterWake = lowerTranscript.split(wakeWord)[1]?.trim() || "";
-          console.log('✅ WAKE WORD DETECTED (local):', wakeWord);
-          console.log('🎤 After wake word:', afterWake || '(empty - waiting for command)');
           
           playWakeSound();
           
           if (afterWake) {
             // Command included after wake word - process immediately
-            console.log('🎤 Processing command immediately:', afterWake);
             const command = afterWake.replace(/^[,.!?\s]+/, ''); // Remove leading punctuation
-            console.log('🎤 Cleaned command:', command);
             
             // Stop current recognition before processing
             localSpeechRecognizer.abort();
             
             // Process the command
             setTimeout(() => {
-              console.log('🎤 Calling processCommandRef.current...');
               if (processCommandRef.current) {
                 processCommandRef.current(command);
-              } else {
-                console.error('🎤 processCommandRef.current is null!');
               }
             }, 100);
           } else {
             // Just wake word, show "I'm listening" and record next utterance
-            console.log('🎤 No command after wake word, waiting...');
             isWaitingForCommandRef.current = true;
             const responseWords = currentPersonaRef.current?.response_words || ["Yes?", "I'm listening"];
             const randomResponse = responseWords[Math.floor(Math.random() * responseWords.length)];
@@ -1048,7 +1021,6 @@ export function WakeWordListener() {
             // Timeout after 8 seconds
             setTimeout(() => {
               if (isWaitingForCommandRef.current) {
-                console.log('🎤 Command wait timeout');
                 isWaitingForCommandRef.current = false;
                 commandBufferRef.current = "";
                 if (silenceTimeoutRef.current) { clearTimeout(silenceTimeoutRef.current); silenceTimeoutRef.current = null; }
@@ -1069,14 +1041,11 @@ export function WakeWordListener() {
         
         commandBufferRef.current += " " + transcript;
         commandBufferRef.current = commandBufferRef.current.trim();
-        console.log('🎤 Command buffer:', commandBufferRef.current);
         
         if (commandBufferRef.current.length > 2) {
           // Wait for SILENCE_DELAY ms of silence before processing
-          console.log('🎤 Command captured, waiting for silence...');
           silenceTimeoutRef.current = setTimeout(() => {
             if (isWaitingForCommandRef.current && commandBufferRef.current.length > 2) {
-              console.log('🎤 Silence detected, processing command:', commandBufferRef.current);
               const command = commandBufferRef.current;
               commandBufferRef.current = "";
               isWaitingForCommandRef.current = false;
@@ -1088,55 +1057,42 @@ export function WakeWordListener() {
       }
     });
     
-    localSpeechRecognizer.onError((error) => {
-      console.error('Local recognition error:', error);
+    localSpeechRecognizer.onError(() => {
       // Don't show toast for every error to avoid spam
     });
     
     // Start listening loop
     const listenLoop = async () => {
       if (!shouldBeListeningRef.current) {
-        console.log('🎤 listenLoop: shouldBeListening is false, exiting');
         return;
       }
       
       try {
         // Use selected microphone device
         const deviceId = settingsRef.current.microphone_device || undefined;
-        console.log('🎤 listenLoop: Starting recognition with device:', deviceId || 'default');
         const started = await localSpeechRecognizer.start(deviceId);
-        console.log('🎤 listenLoop: start() returned:', started);
         
         if (started) {
           // Wait for recording to complete (max 10 seconds)
-          console.log('🎤 listenLoop: Waiting for recording to complete...');
           await new Promise(resolve => setTimeout(resolve, 10500));
-          console.log('🎤 listenLoop: Recording period complete');
           
           // Loop if still listening
           if (shouldBeListeningRef.current && !isProcessingRef.current) {
-            console.log('🎤 listenLoop: Continuing to next loop');
             listenLoop();
-          } else {
-            console.log('🎤 listenLoop: Stopping - shouldBeListening:', shouldBeListeningRef.current, 'isProcessing:', isProcessingRef.current);
           }
         } else {
-          console.log('🎤 listenLoop: start() returned false, retrying in 2s');
           // Retry after delay
           setTimeout(listenLoop, 2000);
         }
-      } catch (error) {
-        console.error('🎤 listenLoop: ERROR:', error);
+      } catch {
         // Retry after delay
         setTimeout(listenLoop, 2000);
       }
     };
     
     if (isListening) {
-      console.log('🎤 Starting local speech recognition...');
       listenLoop();
     } else {
-      console.log('🎤 Stopping local speech recognition (isListening is false)');
       localSpeechRecognizer.abort();
     }
     

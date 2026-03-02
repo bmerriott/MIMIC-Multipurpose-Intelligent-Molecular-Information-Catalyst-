@@ -2,22 +2,35 @@
   <img width="256" height="256" alt="icon" src="https://github.com/user-attachments/assets/b035d3cf-8579-47a1-b910-69af3e00218b" />
 </p>
 
-# Mimic AI Desktop Assistant
+# MIMIC AI Desktop Assistant
 
-A privacy-first, AI-powered desktop assistant with voice synthesis, persistent memory, and local model inference. Mimic AI runs entirely on your local machine using Ollama for language models and supports Browser TTS and Qwen3-TTS for voice synthesis.
+A privacy-first, AI-powered desktop assistant with voice synthesis, persistent memory, and local model inference. MIMIC runs entirely on your local machine using Ollama for language models and supports **KittenTTS** (8 selectable AI voices) and **Qwen3-TTS** (AI voice cloning) for voice synthesis.
+
+> **Latest Release: v1.2.0** - See [Release Notes](#release-notes) for new features!
 
 ## Table of Contents
 - [Features](#features)
+- [Video Showcase](#video-showcase)
+- [Release Notes](#release-notes)
 - [System Requirements](#system-requirements)
 - [Installation](#installation)
 - [Quick Start](#quick-start)
 - [Architecture Overview](#architecture-overview)
-- [Data Flow](#data-flow)
-- [Component Interaction](#component-interaction)
 - [Configuration](#configuration)
 - [Usage Guide](#usage-guide)
 - [Troubleshooting](#troubleshooting)
 - [Privacy & Security](#privacy--security)
+- [License](#license)
+
+---
+
+## Video Showcase
+
+[![MIMIC AI Demo](https://img.youtube.com/vi/iltqKnsCTks/maxresdefault.jpg)](https://www.youtube.com/watch?v=iltqKnsCTks)
+
+*Click to watch MIMIC AI in action - Voice cloning, multi-persona support, and real-time conversation*
+
+**🎥 Watch the Demo:** [MIMIC AI Desktop Assistant v1.2.0](https://www.youtube.com/watch?v=iltqKnsCTks)
 
 ---
 
@@ -25,44 +38,72 @@ A privacy-first, AI-powered desktop assistant with voice synthesis, persistent m
 
 ### Core Capabilities
 - **Local AI Inference**: Uses Ollama for running LLMs locally (Llama, Mistral, etc.)
-- **Voice Synthesis**: Browser TTS (no setup) and Qwen3-TTS (AI voice cloning)
-- **Persistent Memory**: Conversation memory with per-persona context
-- **Web Search**: Privacy-focused SearXNG integration
+- **Voice Synthesis**: 
+  - **KittenTTS** (Default): 8 selectable AI voices (Bella, Jasper, Luna, Bruno, Rosie, Hugo, Kiki, Leo) with adjustable speed
+  - **Qwen3-TTS**: AI voice cloning with reference audio (~3-6GB VRAM)
+- **Persistent Memory**: Conversation memory with per-persona context and file-based storage
+- **Web Search**: Privacy-focused SearXNG integration with smart result summarization
 - **Wake Word Detection**: Hands-free activation with custom wake words
 - **Vision Support**: Image analysis with vision-capable models
 - **Audio Watermarking**: All generated audio is invisibly watermarked for identification
 
 ### Persona System
 - Create multiple AI personas with unique personalities
-- Each persona has independent memory and voice profiles
+- **Per-Persona Memory Isolation**: Each persona has their own memory folder (`~/MimicAI/Memories/{persona_id}/`)
+- Full conversation history stored per persona
 - Voice creation with adjustable parameters (pitch, speed, emotion, etc.)
 - Avatar customization with dynamic 3D visuals
 
-### Avatar Personality System (New!)
-- **Automatic Trait Extraction**: Derives avatar personality traits (energy, playfulness, expressiveness, curiosity, empathy, formality) from personality prompts
-- **Voice Parameter Derivation**: Automatically adjusts voice parameters based on extracted personality traits
-- **Dynamic Emotional State**: Avatar tracks and displays emotional states during conversations
-- **Height-Based Camera**: Camera intelligently positions based on avatar model height for optimal viewing
-- **Procedural Vocalizations**: AI-generated non-verbal sounds (giggles, sighs, hums) using Qwen TTS (cached, max 10 per persona)
+### Avatar Personality System
+- **Automatic Trait Extraction**: Derives avatar personality traits from personality prompts
+- **Voice Parameter Derivation**: Automatically adjusts voice parameters based on personality
+- **Dynamic Emotional State**: Avatar tracks emotional states during conversations
+- **Height-Based Camera**: Camera intelligently positions based on avatar model height
+- **Procedural Vocalizations**: AI-generated non-verbal sounds (giggles, sighs, hums)
 
-### Persona Learning System (New!)
-- **Interaction Tracking**: Records conversation history and user preferences per persona
-- **Emote Learning**: Tracks preferred emotes and animations based on user feedback
-- **Relationship Metrics**: Calculates rapport, familiarity, and trust scores over time
-- **Favorite Topics**: Automatically identifies and remembers user's favorite conversation topics
-- **Emotional History**: Maintains emotional state history for more natural interactions
+### Smart Router System
+- **Intent Classification**: Lightweight LLM routes queries to appropriate handlers
+- **Search Summarization**: Router automatically summarizes web search results to reduce token usage
+- **Minimal System Prompts**: System prompts stay under 500 tokens for faster inference
+- **No Emoji Policy**: Responses exclude emojis (TTS reads them aloud)
+
+### Memory Management (Improved in v1.2.0)
+- **Per-Persona Storage**: Each persona gets isolated memory folder with:
+  - `user_files/` - Uploaded documents
+  - `conversations/` - Saved conversation files
+  - `history.json` - Full conversation history
+- **AI Memories**: Important conversation points automatically extracted
+- **Full History**: Complete conversation log with search capability
+- **No File Size Limits**: Upload any size file (user-managed local storage)
 
 ### Licensing
-- **7-Day Free Trial**: Full functionality for 7 days from first launch
-- **Subscription**: $5/month via Patreon for continued use after trial
-- **Support Development**: Subscribe to help fund ongoing development
-- **Subscribe**: https://www.patreon.com/c/MimicAIDigitalAssistant
+- **Freemium Model**: Core functionality free, premium assets available in-store
+- **Proprietary License**: See [LICENSE.txt](LICENSE.txt) for full EULA
+- **Contact**: deadheadstudios@atomicmail.io
 
-### Memory Management
-- **File Memories**: Upload text files for the AI to reference
-- **Conversation Memories**: Automatic extraction of important conversation points
-- **Memory Controls**: Per-persona memory management with delete/recall capabilities
-- **Summary Generation**: Automatic conversation summarization
+---
+
+## Release Notes
+
+### v1.2.0 (Latest)
+
+#### Major Changes
+- **🔊 KittenTTS Replaces Browser TTS**: Default TTS is now KittenTTS with 8 selectable voices
+  - Female: Bella, Luna, Rosie, Kiki
+  - Male: Jasper, Bruno, Hugo, Leo
+  - Adjustable speech speed (0.5x - 2.0x)
+- **🧠 Improved Memory System**: Per-persona memory folders with full conversation history
+- **🎯 Smart Router**: Intent routing and automatic search result summarization
+- **📷 Camera Improvements**: Better avatar following and height-based positioning
+- **🧹 Clean Console**: Removed debug logging for production builds
+- **📝 Minimal System Prompts**: Reduced token usage for faster responses
+- **🚫 No Emojis**: Responses exclude emojis for better TTS experience
+
+#### Technical Improvements
+- File size limits removed (user-managed storage)
+- Search results processed by router to reduce context size
+- AI Memories tab shows current persona only
+- Voice selection persists across sessions
 
 ---
 
@@ -81,95 +122,49 @@ A privacy-first, AI-powered desktop assistant with voice synthesis, persistent m
 - **Docker Desktop**: Optional, for SearXNG web search
 
 ### VRAM Requirements (Voice Synthesis)
-- Browser TTS: No VRAM required (uses system voice)
-- Qwen3-TTS 0.6B: ~3GB VRAM  
-- Qwen3-TTS 1.7B: ~6GB VRAM
+- **KittenTTS**: No VRAM required (CPU-based, 15M-80M parameter models)
+- **Qwen3-TTS 0.6B**: ~3GB VRAM  
+- **Qwen3-TTS 1.7B**: ~6GB VRAM
 
 ---
 
 ## Installation
 
-### Step 1: Install Prerequisites
+### Desktop Application (Recommended)
 
-1. **Install Python 3.11** (recommended):
-   ```bash
-   # Download from https://python.org/downloads/
-   # During installation, check "Add Python to PATH"
-   ```
-
-2. **Install Node.js**:
-   ```bash
-   # Download from https://nodejs.org (LTS version)
-   # Check "Add to PATH" during installation
-   ```
-
-3. **Install Ollama**:
-   ```bash
-   # Download from https://ollama.com
-   # Pull a model: ollama pull llama3.2
-   ```
-
-4. **Install Docker Desktop** (optional, for web search):
-   ```bash
-   # Download from https://docker.com
-   ```
-
-### Step 2: Choose Installation Method
-
-#### Option A: Desktop Application (Recommended)
-
-Run the installer in the root folder:
+Run the installer:
 
 ```powershell
-.\Mimic AI Setup.exe
+.\Mimic AI_1.0.0_x64-setup.exe
 ```
 
-Or double-click the installer file.
-
 **What happens:**
-- Installs Mimic AI to your system
+- Installs MIMIC to your system
 - Creates Start Menu and Desktop shortcuts
 - All services run in background (no terminal windows)
 - Auto-starts/stops Ollama, TTS backend, and SearXNG
-
-#### Option B: Web Browser Mode (Development)
-
-```bash
-# Clone the repository
-git clone <repository-url>
-cd "Mimic AI Desktop Assistant - Copy"
-
-# Install frontend dependencies
-cd app
-npm install
-cd ..
-
-# Launch (uses browser)
-.\launch-mimic.bat
-```
-
-The launcher will:
-1. Check Python version (3.10-3.12 required)
-2. Install Python dependencies (fastapi, uvicorn, torch, etc.)
-3. Install Node dependencies if needed
-4. Start Ollama server
-5. Start Docker Desktop and SearXNG (if available)
-6. Launch the TTS backend and frontend
-7. Open your browser
 
 ---
 
 ## Quick Start
 
 ### First Launch
-1. Accept the terms and conditions
+1. Accept the End User License Agreement (EULA)
 2. The app will auto-detect Ollama models
 3. Create your first persona or use the default "Mimic" assistant
 
-### Creating a Voice
+### Creating a Voice (KittenTTS - Default)
 1. Go to **Voice Studio** tab
 2. Select or create a persona
-3. Choose TTS Engine (Browser for simplicity, Qwen3 for AI voice cloning)
+3. Choose **KittenTTS** engine
+4. Select one of 8 voices (Bella, Jasper, Luna, etc.)
+5. Adjust speech speed if desired
+6. Save to persona
+
+### Creating a Voice (Qwen3-TTS - AI Cloning)
+1. Go to **Voice Studio** tab
+2. Select or create a persona
+3. Choose **Qwen3-TTS** engine
 4. Upload reference audio or record your voice
 5. Adjust voice parameters (pitch, speed, emotion)
 6. Click "Create Voice" and save to persona
@@ -178,7 +173,8 @@ The launcher will:
 1. Enable "Web Search" in Settings
 2. Docker Desktop will auto-start if installed
 3. SearXNG container will be created and started
-4. Ask questions like "What's the latest news?"
+4. Ask questions like "What's the weather today?"
+5. Router automatically summarizes results
 
 ---
 
@@ -202,8 +198,8 @@ The launcher will:
 ┌─────────────────────────┼───────────────────────────────────┐
 │              TTS Backend (Python FastAPI)                    │
 │  ┌─────────────┐ ┌─────────────┐ ┌─────────────────────┐   │
-│  │ Browser TTS │ │  Qwen3-TTS  │ │  Legal Watermarker  │   │
-│  │  Engine     │ │   Engine    │ │    (AudioSeal)      │   │
+│  │  KittenTTS  │ │  Qwen3-TTS  │ │  Legal Watermarker  │   │
+│  │   Engine    │ │   Engine    │ │    (AudioSeal)      │   │
 │  └─────────────┘ └─────────────┘ └─────────────────────┘   │
 │                         │                                    │
 │              ┌──────────┴──────────┐                        │
@@ -221,18 +217,9 @@ The launcher will:
 │                         │                                    │
 │              Port 11434 (Default)                           │
 └─────────────────────────────────────────────────────────────┘
-                          │
-┌─────────────────────────┼───────────────────────────────────┐
-│              Optional Services                               │
-│  ┌─────────────────┐ ┌─────────────────────────────────────┐│
-│  │  Docker Desktop │ │           SearXNG                   ││
-│  │   (Web Search)  │ │   (Privacy Search Aggregator)       ││
-│  │                 │ │         Port 8080                   ││
-│  └─────────────────┘ └─────────────────────────────────────┘│
-└─────────────────────────────────────────────────────────────┘
 ```
 
-### Data Storage
+### Data Storage (Per-Persona in v1.2.0)
 ```
 ┌─────────────────────────────────────────────────────────────┐
 │                    Data Persistence                          │
@@ -240,271 +227,23 @@ The launcher will:
 │  localStorage (Browser)                                     │
 │  ├── mimic_personas       - Persona configurations          │
 │  ├── mimic_settings       - App settings                    │
-│  ├── mimic_app_state      - Current state                   │
-│  ├── mimic_voice_tuning   - Per-persona voice params        │
-│  └── mimic_terms_accepted - Legal acceptance                │
+│  └── mimic_app_state      - Current state                   │
 │                                                             │
 │  IndexedDB (Browser)                                        │
 │  └── Voice audio data (large binary data)                   │
 │                                                             │
-│  File System (~/MimicAI/Memories/)                          │
-│  └── Memory files (.txt, .md, .json)                        │
-│                                                             │
-│  Tauri FS (Desktop App Only)                                │
-│  └── Voice data in AppData (Windows) or ~/Library (Mac)     │
+│  File System (~/MimicAI/Memories/{persona_id}/)             │
+│  ├── user_files/          - Uploaded documents              │
+│  ├── conversations/       - Conversation exports            │
+│  └── history.json         - Full conversation history       │
 └─────────────────────────────────────────────────────────────┘
-```
-
----
-
-## Data Flow
-
-### 1. Chat Message Flow
-```
-User Input
-    ↓
-┌─────────────────────────────────────────────┐
-│  1. Query Router (Keyword Analysis)         │
-│     - Determines: VISION / WEB_SEARCH /     │
-│       CODE / REASONING / GENERAL            │
-└─────────────────────────────────────────────┘
-    ↓
-┌─────────────────────────────────────────────┐
-│  2. Context Assembly                        │
-│     - System prompt (persona rules)         │
-│     - Memory files (if any)                 │
-│     - Web search results (if enabled)       │
-│     - Image context (if uploaded)           │
-│     - Conversation history                  │
-└─────────────────────────────────────────────┘
-    ↓
-┌─────────────────────────────────────────────┐
-│  3. Ollama API Request                      │
-│     POST /api/generate                      │
-│     - model: selected model                 │
-│     - prompt: assembled context             │
-│     - stream: true                          │
-└─────────────────────────────────────────────┘
-    ↓
-┌─────────────────────────────────────────────┐
-│  4. Response Processing                     │
-│     - Stream chunks to UI                   │
-│     - Memory extraction (if enabled)        │
-│     - TTS generation (if voice enabled)     │
-└─────────────────────────────────────────────┘
-    ↓
-┌─────────────────────────────────────────────┐
-│  5. Audio Output (if TTS enabled)           │
-│     - Persona voice profile loaded          │
-│     - TTS engine called (Browser/Qwen3)   │
-│     - Audio watermark embedded              │
-│     - Audio played via Web Audio API        │
-└─────────────────────────────────────────────┘
-    ↓
-User Hears Response
-```
-
-### 2. Voice Creation Flow
-```
-User Uploads Reference Audio
-    ↓
-┌─────────────────────────────────────────────┐
-│  1. Audio Processing                        │
-│     - Convert to WAV if needed              │
-│     - Transcribe with Puter.js (optional)   │
-└─────────────────────────────────────────────┘
-    ↓
-┌─────────────────────────────────────────────┐
-│  2. TTS Backend Request                     │
-│     POST /api/voice/create                  │
-│     - reference_audio: base64 WAV           │
-│     - reference_text: transcription         │
-│     - engine: browser or qwen3            │
-│     - voice_params: pitch, speed, etc.      │
-└─────────────────────────────────────────────┘
-    ↓
-┌─────────────────────────────────────────────┐
-│  3. Voice Synthesis                         │
-│     - Load reference audio                  │
-│     - Extract voice characteristics         │
-│     - Generate target text speech           │
-│     - Apply audio watermark                 │
-└─────────────────────────────────────────────┘
-    ↓
-┌─────────────────────────────────────────────┐
-│  4. Storage                                 │
-│     - Audio saved to IndexedDB              │
-│     - Voice config saved to persona         │
-│     - localStorage updated                  │
-└─────────────────────────────────────────────┘
-    ↓
-Voice Ready for Use
-```
-
-### 3. Memory System Flow
-```
-Conversation Happens
-    ↓
-┌─────────────────────────────────────────────┐
-│  1. Memory Extraction                       │
-│     - LLM analyzes conversation             │
-│     - Extracts key facts (importance > 0.5) │
-│     - Stores in persona.short_term[]        │
-└─────────────────────────────────────────────┘
-    ↓
-┌─────────────────────────────────────────────┐
-│  2. Memory Summarization (every N msgs)     │
-│     - When threshold reached (default 20)   │
-│     - LLM summarizes conversation           │
-│     - Stores in persona.memory.summary      │
-└─────────────────────────────────────────────┘
-    ↓
-┌─────────────────────────────────────────────┐
-│  3. Memory Retrieval                        │
-│     - On new message, relevant memories     │
-│       are retrieved via semantic search     │
-│     - Added to context window               │
-└─────────────────────────────────────────────┘
-```
-
----
-
-## Component Interaction
-
-### Frontend Components
-
-#### 1. ChatPanel.tsx
-- **Purpose**: Main chat interface
-- **Inputs**: User text, voice input, file attachments, images
-- **Outputs**: AI responses, TTS audio
-- **Integrates with**: 
-  - `ollama.ts` (LLM API)
-  - `tts.ts` (voice synthesis)
-  - `memoryTools.ts` (file operations)
-  - `queryRouter.ts` (query classification)
-
-#### 2. VoiceCreator.tsx
-- **Purpose**: Voice creation and watermark detection
-- **Features**:
-  - Reference audio upload/recording
-  - Voice parameter tuning (pitch, speed, emotion)
-  - TTS engine selection (Browser/Qwen3)
-  - Audio watermark detection
-- **Integrates with**:
-  - `tts.ts` (voice creation API)
-  - `audioEffects.ts` (real-time preview)
-  - `puter.ts` (transcription)
-
-#### 3. MemoryManager.tsx
-- **Purpose**: Browse and manage memories
-- **Features**:
-  - File memory browsing
-  - Conversation memory viewing
-  - Per-persona memory filtering
-  - Delete individual/all memories
-- **Integrates with**:
-  - `memoryTools.ts` (file CRUD)
-  - Store (persona memory access)
-
-#### 4. SettingsPanel.tsx
-- **Purpose**: App configuration
-- **Settings**:
-  - Ollama/TTS backend URLs
-  - Voice settings (volume, rate, TTS mode)
-  - Memory settings (thresholds, summarization)
-  - Wake word sensitivity
-  - Microphone selection
-
-### Backend Components
-
-#### 1. tts_server_unified.py
-- **Purpose**: Unified TTS backend
-- **Endpoints**:
-  - `POST /voice/create` - Create voice from reference
-  - `POST /tts/synthesize` - Text-to-speech
-  - `POST /watermark/detect` - Detect AI watermark
-  - `GET /health` - Health check
-- **Engines**:
-  - Browser TTS: Uses system voice, no setup required
-  - Qwen3-TTS: AI voice cloning, requires reference audio
-
-#### 2. watermarker.py
-- **Purpose**: Multi-layer audio watermarking
-- **Layers**:
-  1. Spread-spectrum (survives compression)
-  2. Echo-based (survives filtering)
-  3. Phase coding (survives amplitude changes)
-- **Usage**: All generated audio is automatically watermarked
-
-#### 3. detect_watermark.py
-- **Purpose**: Standalone watermark detection tool
-- **Usage**: `python detect_watermark.py audio.wav`
-- **Returns**: Detection result with confidence score
-
-### Service Layer
-
-#### 1. ollama.ts
-- **Purpose**: Ollama API client
-- **Methods**:
-  - `generate()` - Text generation
-  - `listModels()` - Get available models
-  - `checkConnection()` - Health check
-  - `filterVisionModels()` - Filter vision-capable models
-
-#### 2. tts.ts
-- **Purpose**: TTS API client
-- **Methods**:
-  - `createVoice()` - Voice creation
-  - `synthesize()` - Text-to-speech
-  - `checkConnection()` - Health check
-  - `getEngineStatus()` - Get available engines
-
-#### 3. searxng.ts
-- **Purpose**: Web search integration
-- **Features**:
-  - Privacy-first search aggregation
-  - No API keys required
-  - Results injected into context
-
-#### 4. memoryTools.ts
-- **Purpose**: File-based memory operations
-- **Methods**:
-  - `listMemories()` - List memory files
-  - `readMemory()` - Read file content
-  - `writeMemory()` - Create/update file
-  - `searchMemories()` - Search file contents
-
-### State Management
-
-#### Zustand Store (store/index.ts)
-```typescript
-// Key state slices:
-- appState: Connection status, current model
-- personas: Persona configurations and memory
-- settings: User preferences
-- messages: Chat history
-- voiceTuning: Per-persona voice parameters
 ```
 
 ---
 
 ## Configuration
 
-### Environment Variables
-Create a `.env` file in `app/` directory:
-
-```env
-# Ollama Configuration
-VITE_OLLAMA_URL=http://localhost:11434
-
-# TTS Backend
-VITE_TTS_BACKEND_URL=http://localhost:8000
-
-# SearXNG (Web Search)
-VITE_SEARXNG_URL=http://localhost:8080
-```
-
-### Settings File
+### Settings
 Settings are stored in `localStorage` under `mimic_settings`:
 
 ```json
@@ -512,17 +251,13 @@ Settings are stored in `localStorage` under `mimic_settings`:
   "ollama_url": "http://localhost:11434",
   "default_model": "llama3.2",
   "vision_model": "bakllava",
-  "tts_backend_url": "http://localhost:8000",
-  "tts_engine": "browser",
-  "qwen3_model_size": "0.6B",
-  "qwen3_flash_attention": true,
+  "tts_engine": "kitten",
+  "kitten_voice": "Bella",
+  "kitten_model": "nano",
+  "kitten_speed": 1.0,
   "voice_volume": 1.0,
-  "speech_rate": 1.0,
   "enable_memory": true,
-  "memory_importance_threshold": 0.5,
-  "enable_web_search": false,
-  "wake_word_sensitivity": 0.7,
-  "auto_listen": false
+  "enable_web_search": false
 }
 ```
 
@@ -533,42 +268,28 @@ Settings are stored in `localStorage` under `mimic_settings`:
 ### Chat Interface
 1. **Text Input**: Type messages and press Enter
 2. **Voice Input**: Click microphone icon or use wake word
-3. **File Attachment**: Click paperclip to upload files
+3. **File Attachment**: Click paperclip to upload files (no size limit)
 4. **Image Upload**: Click camera icon for vision analysis
 
 ### Persona Management
 1. Go to **Personas** tab
 2. Click "New Persona" to create
-3. Configure:
-   - Name and description
-   - Personality prompt
-   - Wake words
-   - Avatar colors
-   - Voice settings
+3. Configure name, personality, wake words, avatar
+4. Each persona gets isolated memory storage
 
-### Memory Files
+### Memory Manager
 1. Go to **Memory Manager**
-2. **Memory Files** tab: Manage uploaded documents
-3. **Conversation Memories** tab: View extracted memories
-4. Use "New Memory File" to add knowledge
+2. **Memory Files**: Manage uploaded documents (per-persona)
+3. **AI Memories**: View important extracted memories
+4. **Full History**: Complete conversation log
 
 ### Voice Studio
 1. Select persona to voice
-2. Upload reference audio or record
-3. Adjust parameters:
-   - **Instant Effects**: Pitch, speed (no regeneration)
-   - **Voice Character**: Warmth, clarity, expressiveness
-   - **Speech**: Emotion, emphasis, pauses
-4. Click "Create Voice"
-5. Save to persona
-
-### Watermark Detection
-1. Go to **Voice Studio** → **Watermark Detection** tab
-2. Upload audio file
-3. View detection results:
-   - Whether AI watermark is present
-   - Confidence score
-   - Layer analysis
+2. Choose engine:
+   - **KittenTTS**: Select from 8 voices, adjust speed
+   - **Qwen3-TTS**: Upload reference audio for cloning
+3. Adjust parameters (pitch, speed, emotion)
+4. Save to persona
 
 ---
 
@@ -587,25 +308,18 @@ Settings are stored in `localStorage` under `mimic_settings`:
 
 **"TTS backend not connected"**
 - Check if backend is running on port 8000
-- Restart with `launch-mimic.bat`
+- Restart the application
 - Check firewall settings
 
 **No audio output**
 - Check system volume
 - Verify voice is saved to persona
-- Try different TTS engine
+- Try different TTS engine (KittenTTS requires no setup)
 
 **Web search not working**
 - Ensure Docker Desktop is installed
 - Check if SearXNG container is running: `docker ps`
 - Verify port 8080 is not in use
-
-### Debug Mode
-Enable debug logging in browser console:
-```javascript
-localStorage.setItem('mimic_debug', 'true');
-location.reload();
-```
 
 ---
 
@@ -614,7 +328,7 @@ location.reload();
 ### Data Locality
 - **All AI processing runs locally** - No cloud services required
 - **Voice data never leaves your machine**
-- **Chat history stored locally** in browser
+- **Chat history stored locally** in per-persona folders
 
 ### Audio Watermarking
 All AI-generated audio contains invisible watermarks for:
@@ -622,16 +336,43 @@ All AI-generated audio contains invisible watermarks for:
 - **Legal protection**: Forensic evidence of origin
 - **Misuse prevention**: Deters fraudulent use
 
-### File Security
-- Memory files stored in user directory (`~/MimicAI/Memories/`)
-- Path traversal attacks prevented
-- Only allowed extensions permitted (.txt, .md, .json, etc.)
-- File size limits enforced (10MB max)
+### Per-Persona Memory Isolation
+Each persona's data is stored in separate folders:
+- No cross-contamination between personas
+- Easy backup/restore per persona
+- Delete one persona without affecting others
 
-### Consent Requirements
-- First-launch consent dialog for AI disclosure
-- Voice creation requires explicit consent
-- Prohibited uses clearly stated (no fraud/impersonation)
+---
+
+## Media Gallery
+
+### Adding Demo Media to README
+
+You can embed demo media in this README using GitHub's file hosting:
+
+#### Option 1: GitHub Repository Media (Recommended)
+1. Create a `media/` folder in your repository
+2. Add GIFs/videos to the folder
+3. Reference them in README:
+   ```markdown
+   ![Demo](media/demo.gif)
+   ```
+
+#### Option 2: GitHub Issue Attachments
+1. Create a new GitHub issue
+2. Drag and drop your GIF/video into the issue
+3. Copy the generated URL
+4. Use that URL in your README
+
+#### Option 3: GitHub Repository Assets
+1. Go to your repository's "Releases" section
+2. Create a new release
+3. Upload GIFs/videos as release assets
+4. Link to them in README
+
+**Recommended Format**: 
+- **GIFs**: Use for short demos (under 10 seconds) - autoplay in README
+- **Videos**: Use MP4 for longer demos - users click to play
 
 ---
 
@@ -647,14 +388,26 @@ All AI-generated audio contains invisible watermarks for:
 
 See [ATTRIBUTION.md](ATTRIBUTION.md) for full credits and license terms.
 
+---
+
 ## License
 
-Proprietary License with 7-Day Trial - See [LICENSE.txt](LICENSE.txt) for details
+**Proprietary License - See [LICENSE.txt](LICENSE.txt)**
 
-Copyright (c) 2026 Mimic AI. All Rights Reserved.
+Copyright (c) 2026 Dead Head Studios. All Rights Reserved.
+
+This software is provided under a Proprietary License. The Software is licensed, not sold. See the EULA for complete terms including:
+- Freemium model with optional premium content
+- Usage restrictions
+- Intellectual property rights
+- Termination conditions
+
+**Contact:** deadheadstudios@atomicmail.io
+
+---
 
 ## Support
 
-- **Patreon**: https://www.patreon.com/c/MimicAIDigitalAssistant
-- **Issues**: Use GitHub issue tracker
+- **Email**: deadheadstudios@atomicmail.io
+- **Web**: https://github.com/bmerriott/MIMIC-Multipurpose-Intelligent-Molecular-Information-Catalyst-
 - **Documentation**: See [QUICKSTART.md](QUICKSTART.md)

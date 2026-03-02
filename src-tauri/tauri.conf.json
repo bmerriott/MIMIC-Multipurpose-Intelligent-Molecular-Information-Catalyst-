@@ -7,7 +7,7 @@
   },
   "package": {
     "productName": "Mimic AI",
-    "version": "1.0.0"
+    "version": "1.2.0"
   },
   "tauri": {
     "allowlist": {
@@ -31,7 +31,8 @@
       "resources": [
         "resources/**/*",
         "start-backends.ps1",
-        "start-backends.bat"
+        "start-backends.bat",
+        "resources/espeak-ng.msi"
       ],
       "windows": {
         "nsis": {
