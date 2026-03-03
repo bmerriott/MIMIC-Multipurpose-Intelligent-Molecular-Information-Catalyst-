@@ -3,15 +3,22 @@
  * 
  * PRIORITY ORDER (highest to lowest):
  * 1. Personality Prompt (dominant - defines who the persona is)
- * 2. Context/Timestamps (conversation history with timing)
- * 3. Capabilities (what tools are available)
- * 4. Minimal behavior constraints (NO EMOJIS only)
+ * 2. Learned Personality (evolved traits from conversations)
+ * 3. Context/Timestamps (conversation history with timing)
+ * 4. Capabilities (what tools are available)
+ * 5. Minimal behavior constraints (NO EMOJIS only)
  * 
  * The personality prompt is ALWAYS first and defines the response style,
  * tone, behavior, and character of the AI.
+ * 
+ * LEARNED PERSONALITY:
+ * As conversations progress, the AI develops learned traits, skills, and
+ * relationship understanding. These are integrated to make each persona
+ * more unique and personalized over time.
  */
 
 import type { Persona } from "@/types";
+import { personalityLearning } from "@/services/personalityLearning";
 
 export interface AgentContext {
   hasMemoryAccess: boolean;
@@ -33,10 +40,20 @@ export function buildAgentSystemPrompt(
   const personalityPrompt = persona.personality_prompt?.trim() 
     || `You are ${persona.name}, a helpful AI assistant.`;
 
-  // 2. Self-awareness context (minimal, supports personality)
-  const selfAwareness = `\n\nYou are operating in MIMIC Desktop Assistant. You have access to tools but should use them naturally as befits your character.`;
+  // 2. LEARNED PERSONALITY (evolved from conversations - verified insights only)
+  const learnedPersonality = personalityLearning.buildPersonalityAugmentation(
+    persona.learning_data || personalityLearning.initializeLearningData()
+  );
+  const learnedSection = learnedPersonality 
+    ? `\n\n${learnedPersonality}` 
+    : "";
 
-  // 3. Capabilities (what the persona CAN do, not restrictions)
+  // 3. Self-awareness context (minimal, supports personality)
+  const selfAwareness = `
+
+You are operating in MIMIC Desktop Assistant. You have access to tools but should use them naturally as befits your character.`;
+
+  // 4. Capabilities (what the persona CAN do, not restrictions)
   const capabilities: string[] = [];
   if (context.hasMemoryAccess) {
     capabilities.push("access your memory files and conversation history");
@@ -49,20 +66,27 @@ export function buildAgentSystemPrompt(
   }
   
   const capabilityText = capabilities.length > 0 
-    ? `\n\nCAPABILITIES: You can ${capabilities.join(", ")}. Use these as your character would.`
+    ? `
+
+CAPABILITIES: You can ${capabilities.join(", ")}. Use these as your character would.`
     : "";
 
-  // 4. Tool guidance for memory recall
+  // 5. Tool guidance for memory recall
   const toolGuidance = context.hasMemoryAccess
-    ? `\n\nMEMORY: When asked about past conversations, timing, or "what was first/second/third", use get_conversation_history or search_conversation_history tools. History includes timestamps.`
+    ? `
+
+MEMORY: When asked about past conversations, timing, or "what was first/second/third", use get_conversation_history or search_conversation_history tools. History includes timestamps.`
     : "";
 
-  // 5. ABSOLUTE MINIMUM constraints (only non-negotiable rules)
+  // 6. ABSOLUTE MINIMUM constraints (only non-negotiable rules)
   // These do NOT override personality - they are technical requirements
-  const constraints = `\n\nTECHNICAL CONSTRAINTS:\n- NO EMOJIS: Do not use emojis as TTS reads them aloud. Express emotion through words as your character would.`;
+  const constraints = `
 
-  // ASSEMBLE: Personality first, everything else supports it
-  return `${personalityPrompt}${selfAwareness}${capabilityText}${toolGuidance}${constraints}`;
+TECHNICAL CONSTRAINTS:
+- NO EMOJIS: Do not use emojis as TTS reads them aloud. Express emotion through words as your character would.`;
+
+  // ASSEMBLE: Personality first, learned personality second, everything else supports it
+  return `${personalityPrompt}${learnedSection}${selfAwareness}${capabilityText}${toolGuidance}${constraints}`;
 }
 
 /**
@@ -73,7 +97,15 @@ export function buildMinimalSystemPrompt(persona: Persona): string {
   const personalityPrompt = persona.personality_prompt?.trim() 
     || `You are ${persona.name}, a helpful AI assistant.`;
 
-  return `${personalityPrompt}\n\nYou are in MIMIC Desktop Assistant. NO EMOJIS (TTS reads them).`;
+  // Add learned personality even in minimal mode
+  const learnedPersonality = personalityLearning.buildPersonalityAugmentation(
+    persona.learning_data || personalityLearning.initializeLearningData()
+  );
+  const learnedSection = learnedPersonality 
+    ? `\n\n${learnedPersonality}` 
+    : "";
+
+  return `${personalityPrompt}${learnedSection}\n\nYou are in MIMIC Desktop Assistant. NO EMOJIS (TTS reads them).`;
 }
 
 /**
@@ -104,7 +136,9 @@ export function buildRouterGuidance(
   }
 
   // Router guidance is SUGGESTIVE, not prescriptive
-  return `\n\n[Context: ${parts.join(" | ")}]`;
+  return `
+
+[Context: ${parts.join(" | ")}]`;
 }
 
 /**

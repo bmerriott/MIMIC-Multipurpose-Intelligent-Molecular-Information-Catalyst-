@@ -1,6 +1,6 @@
 [package]
 name = "mimic-ai"
-version = "1.0.0"
+version = "1.2.1"
 description = "Mimic AI Desktop Assistant - Voice-powered AI companion"
 authors = ["Mimic AI"]
 license = ""

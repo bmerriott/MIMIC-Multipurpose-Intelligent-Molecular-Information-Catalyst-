@@ -1,6 +1,6 @@
 ﻿import { useState, useRef, useEffect, useCallback } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Send, User, Bot, Sparkles, RefreshCw, ChevronDown, Video, X, Wifi, Paperclip, Zap, BrainCircuit } from "lucide-react";
+import { Send, User, Bot, Sparkles, RefreshCw, ChevronDown, Video, X, Wifi, Paperclip, Zap, BrainCircuit, Brain } from "lucide-react";
 import { MimicLogo } from "./MimicLogo";
 import { useStore } from "@/store";
 import type { ChatMessage } from "@/types";
@@ -22,6 +22,7 @@ import { useToolConfirmation } from "@/hooks/useToolConfirmation";
 import { LiveVideoModal } from "./LiveVideoModal";
 import { FileAttachmentModal } from "./FileAttachmentModal";
 import { MemoryManager, MemoryWriteConfirmation } from "./MemoryManager";
+import { PersonalityManager } from "./PersonalityManager";
 import { ToolConfirmationModal } from "./ToolConfirmationModal";
 
 export function ChatPanel() {
@@ -34,6 +35,7 @@ export function ChatPanel() {
   const [showLiveVideo, setShowLiveVideo] = useState(false);
   const [showFileModal, setShowFileModal] = useState(false);
   const [showMemoryManager, setShowMemoryManager] = useState(false);
+  const [showPersonalityManager, setShowPersonalityManager] = useState(false);
   const [memoryWritePending, setMemoryWritePending] = useState<{
     filename: string;
     content?: string;
@@ -1196,6 +1198,12 @@ User's request: ${cleanUserMessage}
         isOpen={showMemoryManager}
         onClose={() => setShowMemoryManager(false)}
       />
+      
+      {/* Personality Manager */}
+      <PersonalityManager
+        isOpen={showPersonalityManager}
+        onClose={() => setShowPersonalityManager(false)}
+      />
 
       {/* Memory Write Confirmation */}
       {memoryWritePending && (
@@ -1308,6 +1316,18 @@ User's request: ${cleanUserMessage}
               className="h-8 w-8"
             >
               <BrainCircuit className="w-3.5 h-3.5" />
+            </Button>
+            
+            {/* Personality Manager Button */}
+            <Button
+              variant="outline"
+              size="icon"
+              onClick={() => setShowPersonalityManager(true)}
+              disabled={isProcessing}
+              title="Open Personality Development"
+              className="h-8 w-8"
+            >
+              <Brain className="w-3.5 h-3.5" />
             </Button>
             
             {/* Web Search Button - WiFi Icon */}

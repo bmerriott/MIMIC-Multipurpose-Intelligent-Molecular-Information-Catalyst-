@@ -303,10 +303,40 @@ function migrateAvatarConfig(personas: Persona[]): Persona[] {
   });
 }
 
+// Sanitize memory entries to ensure content is always a string
+const sanitizeMemory = (memory: PersonaMemory): PersonaMemory => {
+  const sanitizeEntry = (entry: MemoryEntry): MemoryEntry => {
+    let content = entry.content;
+    if (typeof content !== 'string') {
+      try {
+        content = JSON.stringify(content);
+      } catch {
+        content = String(content);
+      }
+    }
+    return { ...entry, content };
+  };
+
+  return {
+    short_term: memory.short_term.map(sanitizeEntry),
+    long_term: memory.long_term.map(sanitizeEntry),
+    summary: typeof memory.summary === 'string' ? memory.summary : '',
+    last_summarized: memory.last_summarized,
+  };
+};
+
+// Migrate persona memory data
+const migrateMemoryData = (personas: Persona[]): Persona[] => {
+  return personas.map(p => ({
+    ...p,
+    memory: sanitizeMemory(p.memory),
+  }));
+};
+
 // Load and migrate personas if needed
 const loadPersonas = (): Persona[] => {
   const personas = loadFromStorage<Persona[]>("mimic_personas", [defaultPersona]);
-  return migrateAvatarConfig(personas);
+  return migrateAvatarConfig(migrateMemoryData(personas));
 };
 
 // Load and migrate current persona
@@ -382,6 +412,16 @@ export const useStore = create<StoreState>((set, get) => ({
       } catch (e) {
         console.error("[Store] Failed to derive personality:", e);
       }
+    }
+    
+    // Initialize persona folders for file-based memory
+    try {
+      const { memoryToolsService } = await import("@/services/memoryTools");
+      await memoryToolsService.initializePersonaFolders(persona.id, persona.name);
+      console.log("[Store] Initialized memory folders for persona:", persona.name);
+    } catch (e) {
+      console.error("[Store] Failed to initialize memory folders:", e);
+      // Non-critical error, continue
     }
     
     const newPersonas = [...get().personas, persona];

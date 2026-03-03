@@ -1,7 +1,7 @@
 {
   "name": "mimic-ai-assistant",
   "private": true,
-  "version": "1.2.0",
+  "version": "1.2.1",
   "type": "module",
   "description": "A beautiful AI desktop assistant with voice cloning, 3D avatar, and contextual memory",
   "scripts": {

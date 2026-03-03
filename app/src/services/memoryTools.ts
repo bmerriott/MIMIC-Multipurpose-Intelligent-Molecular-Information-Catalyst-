@@ -78,18 +78,28 @@ class MemoryToolsService {
    * @param folder 'user_files', 'conversations', or undefined for both
    */
   async listMemories(personaId: string = "default", folder?: "user_files" | "conversations" | "all"): Promise<MemoryFile[]> {
-    const url = new URL(`${this.baseUrl}/memory/list`, window.location.origin);
-    if (folder) {
-      url.searchParams.append("folder", folder);
+    try {
+      const url = new URL(`${this.baseUrl}/memory/list`, window.location.origin);
+      if (folder) {
+        url.searchParams.append("folder", folder);
+      }
+      url.searchParams.append("persona_id", personaId);
+      
+      const response = await fetch(url.toString(), {
+        signal: AbortSignal.timeout(10000),
+      });
+      if (!response.ok) {
+        const errorText = await response.text();
+        console.error("[MemoryTools] listMemories failed:", response.status, errorText);
+        throw new Error(`Failed to list memories: ${response.status}`);
+      }
+      const data = await response.json();
+      return data.files || [];
+    } catch (error) {
+      console.error("[MemoryTools] listMemories error:", error);
+      // Return empty array instead of crashing
+      return [];
     }
-    url.searchParams.append("persona_id", personaId);
-    
-    const response = await fetch(url.toString());
-    if (!response.ok) {
-      throw new Error("Failed to list memories");
-    }
-    const data = await response.json();
-    return data.files || [];
   }
 
   /**
@@ -98,17 +108,23 @@ class MemoryToolsService {
    * @param personaId The persona identifier
    */
   async readMemory(filename: string, personaId: string = "default"): Promise<string> {
-    const response = await fetch(`${this.baseUrl}/memory/read`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ filename, persona_id: personaId }),
-    });
-    if (!response.ok) {
-      const error = await response.json();
-      throw new Error(error.detail || "Failed to read memory");
+    try {
+      const response = await fetch(`${this.baseUrl}/memory/read`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ filename, persona_id: personaId }),
+        signal: AbortSignal.timeout(10000),
+      });
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.detail || "Failed to read memory");
+      }
+      const data = await response.json();
+      return data.content;
+    } catch (error: any) {
+      console.error("[MemoryTools] readMemory error:", error);
+      throw new Error(error.message || "Failed to read memory file");
     }
-    const data = await response.json();
-    return data.content;
   }
 
   /**
@@ -118,16 +134,22 @@ class MemoryToolsService {
    * @param folder 'user_files', 'conversations', or undefined for both
    */
   async searchMemories(query: string, personaId: string = "default", folder?: "user_files" | "conversations" | "all"): Promise<MemorySearchMatch[]> {
-    const response = await fetch(`${this.baseUrl}/memory/search`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ query, folder, persona_id: personaId }),
-    });
-    if (!response.ok) {
-      throw new Error("Failed to search memories");
+    try {
+      const response = await fetch(`${this.baseUrl}/memory/search`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ query, folder, persona_id: personaId }),
+        signal: AbortSignal.timeout(10000),
+      });
+      if (!response.ok) {
+        throw new Error("Failed to search memories");
+      }
+      const data = await response.json();
+      return data.matches || [];
+    } catch (error) {
+      console.error("[MemoryTools] searchMemories error:", error);
+      return [];
     }
-    const data = await response.json();
-    return data.matches || [];
   }
 
   /**
@@ -261,14 +283,62 @@ class MemoryToolsService {
   }
 
   /**
+   * Initialize persona folders (creates user_files and conversations folders)
+   * Call this when creating a new persona
+   */
+  async initializePersonaFolders(personaId: string, personaName: string): Promise<boolean> {
+    try {
+      // Create a welcome/info file in the persona's folder
+      const welcomeContent = `# ${personaName}'s Memory Folder
+
+This folder contains saved information for ${personaName}.
+- Files in this folder can be read by ${personaName} during conversations
+- Use this to store facts, preferences, notes, and other information
+
+## Folder Structure
+- user_files/ - Your saved notes and documents
+- conversations/ - Auto-saved conversation summaries
+`;
+      const result = await this.writeMemory(
+        "README.md",
+        welcomeContent,
+        personaId,
+        true,
+        "user_files"
+      );
+      console.log(`[MemoryTools] Initialized folders for persona ${personaId}:`, result.message);
+      return result.success;
+    } catch (error) {
+      console.error("[MemoryTools] Failed to initialize persona folders:", error);
+      return false;
+    }
+  }
+
+  /**
+   * Get the base path for a persona's memory storage
+   * This is useful for understanding where files are stored
+   */
+  getPersonaMemoryPath(personaId: string): string {
+    // This is for information purposes - actual path is on the backend
+    return `~/MimicAI/Memories/${personaId}/`;
+  }
+
+  /**
    * Get tool schema for Ollama
    */
   async getToolSchema(): Promise<any[]> {
-    const response = await fetch(`${this.baseUrl}/memory/tools`);
-    if (!response.ok) {
+    try {
+      const response = await fetch(`${this.baseUrl}/memory/tools`, {
+        signal: AbortSignal.timeout(5000),
+      });
+      if (!response.ok) {
+        return [];
+      }
+      return response.json();
+    } catch (error) {
+      console.error("[MemoryTools] getToolSchema error:", error);
       return [];
     }
-    return response.json();
   }
 
   getReadOnlyToolSchema(): Array<{

@@ -37,13 +37,16 @@ if sys.platform == 'win32':
 from dotenv import load_dotenv
 load_dotenv()
 
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import FastAPI, HTTPException, Request, Query
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field, field_validator
 import uvicorn
 import numpy as np
+
+# Import memory tools
+from memory_tools import get_memory_tools, MEMORY_TOOLS_SCHEMA
 
 # ============ TORCH SETUP ============
 try:
@@ -1183,7 +1186,198 @@ async def unload_tts_models(engine: str = "qwen3"):
         traceback.print_exc()
         raise HTTPException(status_code=500, detail=str(e))
 
-if __name__ == "__main__":
+
+# ============================================================================
+# MEMORY API ROUTES
+# ============================================================================
+
+class MemoryListResponse(BaseModel):
+    files: List[Dict[str, Any]]
+    message: str
+
+class MemoryReadRequest(BaseModel):
+    filename: str
+    persona_id: str = "default"
+
+class MemoryReadResponse(BaseModel):
+    filename: str
+    content: str
+    size: int
+
+class MemoryWriteRequest(BaseModel):
+    filename: str
+    content: str
+    confirm: bool = False
+    folder: str = "user_files"
+    persona_id: str = "default"
+
+class MemoryDeleteRequest(BaseModel):
+    confirm: bool = False
+
+class MemorySearchRequest(BaseModel):
+    query: str
+    folder: Optional[str] = None
+    persona_id: str = "default"
+
+class ConversationSaveRequest(BaseModel):
+    persona_id: str
+    role: str
+    content: str
+    message_type: str = "text"
+    metadata: Optional[Dict[str, Any]] = None
+
+@app.get("/api/memory/list")
+async def memory_list(folder: Optional[str] = None, persona_id: str = "default"):
+    """List all memory files for a persona."""
+    try:
+        memory_tools = get_memory_tools()
+        result = memory_tools.list_memories(folder=folder, persona_id=persona_id)
+        if result.success:
+            # Convert MemoryFile dataclasses to dicts
+            files = []
+            for f in result.data:
+                if hasattr(f, '__dataclass_fields__'):
+                    files.append({
+                        "name": f.name,
+                        "path": f.path,
+                        "size": f.size,
+                        "modified": f.modified.isoformat() if hasattr(f.modified, 'isoformat') else str(f.modified),
+                        "preview": f.content_preview
+                    })
+                else:
+                    files.append(f)
+            return {"files": files, "message": result.message}
+        else:
+            raise HTTPException(status_code=500, detail=result.message)
+    except Exception as e:
+        print(f"Memory list error: {e}")
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/api/memory/read")
+async def memory_read(request: MemoryReadRequest):
+    """Read a specific memory file."""
+    try:
+        memory_tools = get_memory_tools()
+        result = memory_tools.read_memory(request.filename, persona_id=request.persona_id)
+        if result.success:
+            return result.data
+        else:
+            raise HTTPException(status_code=404, detail=result.message)
+    except Exception as e:
+        print(f"Memory read error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/api/memory/write")
+async def memory_write(request: MemoryWriteRequest):
+    """Write content to a memory file."""
+    try:
+        memory_tools = get_memory_tools()
+        result = memory_tools.write_memory(
+            filename=request.filename,
+            content=request.content,
+            confirm=request.confirm,
+            folder=request.folder,
+            persona_id=request.persona_id
+        )
+        return {"success": result.success, "message": result.message, "data": result.data}
+    except Exception as e:
+        print(f"Memory write error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.delete("/api/memory/delete")
+async def memory_delete(filename: str, confirm: bool = False, persona_id: str = "default"):
+    """Delete a memory file."""
+    try:
+        memory_tools = get_memory_tools()
+        result = memory_tools.delete_memory(filename, confirm=confirm, persona_id=persona_id)
+        return {"success": result.success, "message": result.message, "data": result.data}
+    except Exception as e:
+        print(f"Memory delete error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/api/memory/search")
+async def memory_search(request: MemorySearchRequest):
+    """Search memory files for keywords."""
+    try:
+        memory_tools = get_memory_tools()
+        result = memory_tools.search_memories(
+            query=request.query,
+            folder=request.folder,
+            persona_id=request.persona_id
+        )
+        if result.success:
+            return {"matches": result.data, "message": result.message}
+        else:
+            raise HTTPException(status_code=500, detail=result.message)
+    except Exception as e:
+        print(f"Memory search error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/memory/tools")
+async def memory_tools_schema():
+    """Get the tool schema for Ollama integration."""
+    return MEMORY_TOOLS_SCHEMA
+
+# Conversation History Routes
+@app.post("/api/memory/conversation/save")
+async def conversation_save(request: ConversationSaveRequest):
+    """Save a conversation message to the persona's history."""
+    try:
+        memory_tools = get_memory_tools()
+        result = memory_tools.save_conversation_message(
+            persona_id=request.persona_id,
+            role=request.role,
+            content=request.content,
+            message_type=request.message_type,
+            metadata=request.metadata
+        )
+        return {"success": result.success, "message": result.message, "data": result.data}
+    except Exception as e:
+        print(f"Conversation save error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/memory/conversation/history")
+async def conversation_history(persona_id: str, limit: Optional[int] = None):
+    """Get the full conversation history for a persona."""
+    try:
+        memory_tools = get_memory_tools()
+        result = memory_tools.get_conversation_history(persona_id, limit=limit)
+        if result.success:
+            return {"history": result.data, "message": result.message}
+        else:
+            raise HTTPException(status_code=500, detail=result.message)
+    except Exception as e:
+        print(f"Conversation history error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/api/memory/conversation/search")
+async def conversation_search(persona_id: str, query: str):
+    """Search conversation history for specific content."""
+    try:
+        memory_tools = get_memory_tools()
+        result = memory_tools.search_conversation_history(persona_id, query)
+        if result.success:
+            return {"matches": result.data, "message": result.message}
+        else:
+            raise HTTPException(status_code=500, detail=result.message)
+    except Exception as e:
+        print(f"Conversation search error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.delete("/api/memory/conversation/clear")
+async def conversation_clear(persona_id: str, confirm: bool = False):
+    """Clear all conversation history for a persona."""
+    try:
+        memory_tools = get_memory_tools()
+        result = memory_tools.clear_conversation_history(persona_id, confirm=confirm)
+        return {"success": result.success, "message": result.message}
+    except Exception as e:
+        print(f"Conversation clear error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+if __name__ == "__main":
     port = int(os.environ.get("TTS_PORT", 8000))
     host = os.environ.get("TTS_HOST", "127.0.0.1")
     print(f"Starting TTS server on {host}:{port}")
